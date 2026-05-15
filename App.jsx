@@ -484,27 +484,34 @@ function KanaTable({ kanaMode, setKanaMode, mastered, currentChar, onSelect, onS
 /* ──────────────────────────────────────────────────────────────
    13. <PracticeBoard> ── 練習キャンバス
    ────────────────────────────────────────────────────────────── */
-const TOLERANCE = 0.18;
+const TOLERANCE = 0.22; // 始点・終点の許容範囲（大きいほど優しい）
+
 function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
   const writeRef = useRef(null);
   const inkRef   = useRef(null);
   const guideRef = useRef(null);
-  const wrapRef  = useRef(null);
   const [currentStroke, setCurrentStroke] = useState(0);
   const [isCleared, setIsCleared] = useState(false);
   const [showAnime, setShowAnime] = useState(false);
-  const [mistaken, setMistaken]   = useState(false);
+  const [mistakes, setMistakes]   = useState(0);
+  const [hasMistaken, setHasMistaken] = useState(false);
   const [mascotMsg, setMascotMsg] = useState('');
-  const [mascotMood, setMascotMood] = useState('happy');
+  const [mascotMood, setMascotMood] = useState('cheer');
   const drawingRef = useRef(false);
   const lastRef    = useRef({ x: 0, y: 0 });
 
+  // 最新stateをrefにキャッシュ（native event listenerでのstale closure対策）
+  const stateRef = useRef({});
+  stateRef.current = { paths, currentStroke, isCleared, char, mistakes, hasMistaken, voiceOn };
+
+  /* --- ライフサイクル --- */
   useEffect(() => {
-    setCurrentStroke(0); setIsCleared(false); setMistaken(false); setShowAnime(false);
-    setMascotMsg(char ? `「${char}」を かこう！` : ''); setMascotMood('cheer');
+    setCurrentStroke(0); setIsCleared(false);
+    setMistakes(0); setHasMistaken(false); setShowAnime(false);
+    setMascotMsg(char ? `「${char}」を かこう！` : '');
+    setMascotMood('cheer');
     clearAll();
     if (paths) requestAnimationFrame(() => { resize(); redrawGuide(); });
-    // 文字を読み上げ
     if (char && voiceOn) setTimeout(() => speakText(char, voiceOn), 200);
   }, [char, paths]);
 
@@ -512,8 +519,30 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
     const onR = () => { resize(); redrawGuide(); redrawInk(); };
     window.addEventListener('resize', onR);
     return () => window.removeEventListener('resize', onR);
-  });
+  }, []);
 
+  useEffect(() => { redrawInk(); /* eslint-disable-line */ }, [currentStroke, paths]);
+
+  /* --- ネイティブイベント（passive:false でpreventDefault可能に） --- */
+  useEffect(() => {
+    const canvas = writeRef.current;
+    if (!canvas) return;
+    const ts = (e) => { if (e.touches[0]) { e.preventDefault(); doStart(e.touches[0].clientX, e.touches[0].clientY); } };
+    const tm = (e) => { if (e.touches[0]) { e.preventDefault(); doMove(e.touches[0].clientX, e.touches[0].clientY); } };
+    const te = (e) => { e.preventDefault(); doEnd(); };
+    canvas.addEventListener('touchstart',  ts, { passive: false });
+    canvas.addEventListener('touchmove',   tm, { passive: false });
+    canvas.addEventListener('touchend',    te, { passive: false });
+    canvas.addEventListener('touchcancel', te, { passive: false });
+    return () => {
+      canvas.removeEventListener('touchstart',  ts);
+      canvas.removeEventListener('touchmove',   tm);
+      canvas.removeEventListener('touchend',    te);
+      canvas.removeEventListener('touchcancel', te);
+    };
+  }, []);
+
+  /* --- 描画ヘルパー --- */
   function clearAll() {
     [writeRef, inkRef, guideRef].forEach(r => {
       const c = r.current; if (!c) return;
@@ -521,90 +550,135 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
     });
   }
   function resize() {
-    const wrap = wrapRef.current; if (!wrap) return;
-    const size = Math.min(wrap.clientWidth, wrap.clientHeight);
-    if (size === 0) return;
+    const c = writeRef.current; if (!c) return;
+    const rect = c.getBoundingClientRect();
+    const size = Math.round(Math.min(rect.width, rect.height));
+    if (size <= 0) return;
     [writeRef, inkRef, guideRef].forEach(r => {
-      if (r.current) { r.current.width = size; r.current.height = size; }
+      if (r.current && r.current.width !== size) {
+        r.current.width = size; r.current.height = size;
+      }
     });
   }
   function redrawGuide() {
-    const c = guideRef.current; if (!c || !paths) return;
+    const c = guideRef.current; const p = stateRef.current.paths;
+    if (!c || !p) return;
     const ctx = c.getContext('2d'); const s = c.width;
     ctx.clearRect(0,0,s,s);
     ctx.save(); ctx.scale(s/109, s/109);
-    ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    paths.forEach(p => ctx.stroke(new Path2D(p)));
+    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    p.forEach(d => ctx.stroke(new Path2D(d)));
     ctx.restore();
   }
   function redrawInk() {
-    const c = inkRef.current; if (!c || !paths) return;
+    const c = inkRef.current; const p = stateRef.current.paths;
+    if (!c || !p) return;
     const ctx = c.getContext('2d'); const s = c.width;
-    ctx.clearRect(0,0,s,s); if (currentStroke === 0) return;
+    ctx.clearRect(0,0,s,s);
+    const cs = stateRef.current.currentStroke;
+    if (cs === 0) return;
     ctx.save(); ctx.scale(s/109, s/109);
-    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (let i = 0; i < currentStroke; i++) ctx.stroke(new Path2D(paths[i]));
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (let i = 0; i < cs; i++) ctx.stroke(new Path2D(p[i]));
     ctx.restore();
   }
-  useEffect(() => { redrawGuide(); redrawInk(); /* eslint-disable-line */ }, [currentStroke, paths]);
 
-  function startDraw(e) {
-    if (!paths || isCleared) return;
-    e.preventDefault?.(); initAudio();
-    const c = writeRef.current; const rect = c.getBoundingClientRect();
-    const px = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-    const py = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-    if (currentStroke >= paths.length) return;
-    const target = getStartEndPoints(paths[currentStroke]).s;
-    const dist = Math.hypot(px/c.width - target.x, py/c.height - target.y);
+  /* --- 座標変換ヘルパー --- */
+  function toCanvas(clientX, clientY) {
+    const c = writeRef.current; if (!c) return null;
+    const rect = c.getBoundingClientRect();
+    const nx = (clientX - rect.left) / rect.width;
+    const ny = (clientY - rect.top)  / rect.height;
+    return { nx, ny, cx: nx * c.width, cy: ny * c.height };
+  }
+
+  /* --- 描画ロジック（マウス/タッチ共用） --- */
+  function doStart(clientX, clientY) {
+    const { paths: ps, currentStroke: cs, isCleared: ic } = stateRef.current;
+    if (!ps || ps.length === 0 || ic) return;
+    initAudio();
+    if (cs >= ps.length) return;
+    const pt = toCanvas(clientX, clientY); if (!pt) return;
+    const target = getStartEndPoints(ps[cs]).s;
+    const dist = Math.hypot(pt.nx - target.x, pt.ny - target.y);
     if (dist > TOLERANCE) { onMistake(); return; }
-    drawingRef.current = true; lastRef.current = { x: px, y: py };
+    drawingRef.current = true;
+    lastRef.current = { x: pt.cx, y: pt.cy };
+    const c = writeRef.current;
     const ctx = c.getContext('2d');
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.lineWidth = c.width * 0.07; ctx.strokeStyle = 'rgba(14,165,233,0.75)';
-    ctx.beginPath(); ctx.moveTo(px, py); ctx.stroke();
+    ctx.lineWidth = c.width * 0.07;
+    ctx.strokeStyle = 'rgba(14,165,233,0.75)';
+    ctx.beginPath(); ctx.moveTo(pt.cx, pt.cy); ctx.stroke();
   }
-  function moveDraw(e) {
-    if (!drawingRef.current) return; e.preventDefault?.();
-    const c = writeRef.current; const rect = c.getBoundingClientRect();
-    const px = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-    const py = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-    const ctx = c.getContext('2d');
-    ctx.beginPath(); ctx.moveTo(lastRef.current.x, lastRef.current.y); ctx.lineTo(px, py); ctx.stroke();
-    lastRef.current = { x: px, y: py };
+  function doMove(clientX, clientY) {
+    if (!drawingRef.current) return;
+    const pt = toCanvas(clientX, clientY); if (!pt) return;
+    const ctx = writeRef.current.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(lastRef.current.x, lastRef.current.y);
+    ctx.lineTo(pt.cx, pt.cy);
+    ctx.stroke();
+    lastRef.current = { x: pt.cx, y: pt.cy };
   }
-  function endDraw() {
+  function doEnd() {
     if (!drawingRef.current) return;
     drawingRef.current = false;
-    const c = writeRef.current; if (!paths) return;
-    const target = getStartEndPoints(paths[currentStroke]).e;
-    const { x, y } = lastRef.current;
-    const dist = Math.hypot(x/c.width - target.x, y/c.height - target.y);
-    const ctx = c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height);
+    const { paths: ps, currentStroke: cs, char: ch, hasMistaken: hm } = stateRef.current;
+    if (!ps || ps.length === 0) return;
+    const target = getStartEndPoints(ps[cs]).e;
+    const c = writeRef.current;
+    const nx = lastRef.current.x / c.width;
+    const ny = lastRef.current.y / c.height;
+    const dist = Math.hypot(nx - target.x, ny - target.y);
+    c.getContext('2d').clearRect(0, 0, c.width, c.height);
     if (dist < TOLERANCE) {
-      const next = currentStroke + 1;
+      const next = cs + 1;
       setCurrentStroke(next);
-      if (next >= paths.length) {
+      if (next >= ps.length) {
         setIsCleared(true); playFanfare(); burstConfetti();
         setMascotMsg('💮 よくできました！'); setMascotMood('wow');
         if (voiceOn) setTimeout(() => speakText('よくできました', voiceOn), 200);
-        onMastered(char, !mistaken);
+        onMastered(ch, !hm);
       } else {
         playPingPong();
         setMascotMsg('いい ちょうし！'); setMascotMood('happy');
+        setMistakes(0); // この画の成功でミスカウントをリセット
       }
-    } else { onMistake(); }
+    } else {
+      onMistake();
+    }
   }
   function onMistake() {
-    setMistaken(true); playBuzzer();
-    setMascotMsg('かきじゅんを みてみよう'); setMascotMood('sad');
-    setShowAnime(true);
+    playBuzzer();
+    setHasMistaken(true);
+    setMistakes(m => {
+      const nm = m + 1;
+      if (nm >= 3) {
+        // ３回まちがえたら自動で書き順アニメ
+        setShowAnime(true);
+        setMascotMsg('かきじゅんを みてみよう'); setMascotMood('sad');
+        return 0;
+      } else {
+        setMascotMsg(nm === 1 ? '🔴の ところから かいてね！' : 'もういちど ちょうせん！');
+        setMascotMood('sad');
+        return nm;
+      }
+    });
   }
   function restart() {
-    setCurrentStroke(0); setIsCleared(false); setMistaken(false);
+    setCurrentStroke(0); setIsCleared(false);
+    setMistakes(0); setHasMistaken(false);
     clearAll(); redrawGuide();
     setMascotMsg('もう いっかい がんばろう！'); setMascotMood('cheer');
   }
+
+  /* --- 始点ヒント（赤い点滅マーカー） --- */
+  const startHint = useMemo(() => {
+    if (!paths || paths.length === 0 || currentStroke >= paths.length || isCleared) return null;
+    const s = getStartEndPoints(paths[currentStroke]).s;
+    return { x: s.x * 100, y: s.y * 100 };
+  }, [paths, currentStroke, isCleared]);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-100 p-3 md:p-4 flex flex-col h-full">
@@ -619,22 +693,33 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
         )}
       </div>
 
-      {/* マスコット */}
       {char && (
         <div className="mb-2 shrink-0">
           <Mascot message={mascotMsg} mood={mascotMood} size="small"/>
         </div>
       )}
 
-      <div ref={wrapRef} className="flex-1 flex items-center justify-center min-h-0 relative w-full">
-        <div className="relative aspect-square h-full max-h-[420px] w-auto bg-white rounded-2xl border-4 border-orange-200 shadow-inner overflow-hidden">
-          <div className="absolute top-1/2 left-0 right-0 border-t-2 border-dashed border-amber-200 pointer-events-none"/>
-          <div className="absolute left-1/2 top-0 bottom-0 border-l-2 border-dashed border-amber-200 pointer-events-none"/>
-          <canvas ref={guideRef} className="absolute inset-0 w-full h-full z-0"/>
-          <canvas ref={inkRef}   className="absolute inset-0 w-full h-full z-10"/>
-          <canvas ref={writeRef} className="absolute inset-0 w-full h-full z-20 touch-none cursor-crosshair"
-            onMouseDown={startDraw} onMouseMove={moveDraw} onMouseUp={endDraw} onMouseLeave={endDraw}
-            onTouchStart={startDraw} onTouchMove={moveDraw} onTouchEnd={endDraw}
+      <div className="flex-1 flex items-center justify-center min-h-0 relative w-full">
+        <div className="relative aspect-square h-full max-h-[420px] bg-white rounded-2xl border-4 border-orange-200 shadow-inner overflow-hidden">
+          <div className="absolute top-1/2 left-0 right-0 border-t-2 border-dashed border-amber-200 pointer-events-none z-[5]"/>
+          <div className="absolute left-1/2 top-0 bottom-0 border-l-2 border-dashed border-amber-200 pointer-events-none z-[5]"/>
+          <canvas ref={guideRef} className="absolute inset-0 w-full h-full z-[1]"/>
+          <canvas ref={inkRef}   className="absolute inset-0 w-full h-full z-[10]"/>
+          {/* 始点ヒント（赤い点滅マーカー） */}
+          {startHint && (
+            <div className="absolute z-[15] pointer-events-none"
+                 style={{ left: `${startHint.x}%`, top: `${startHint.y}%`, transform: 'translate(-50%, -50%)' }}>
+              <span className="absolute inset-0 inline-flex h-5 w-5 rounded-full bg-rose-400 opacity-75 animate-ping"/>
+              <span className="relative inline-flex rounded-full h-5 w-5 bg-rose-500 border-2 border-white shadow"/>
+            </div>
+          )}
+          <canvas ref={writeRef}
+            className="absolute inset-0 w-full h-full z-[20] cursor-crosshair"
+            style={{ touchAction: 'none' }}
+            onMouseDown={(e) => doStart(e.clientX, e.clientY)}
+            onMouseMove={(e) => doMove(e.clientX, e.clientY)}
+            onMouseUp={() => doEnd()}
+            onMouseLeave={() => doEnd()}
           />
           {!char && (
             <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-7xl pointer-events-none">？</div>
