@@ -88,12 +88,57 @@ const BADGES = [
 ];
 
 // LocalStorage キー
-const KEY_MASTERED = 'kkm_v2_mastered';
+const KEY_MASTERED = 'kkm_v2_mastered';        // 旧データ（マイグレーション用）
+const KEY_PROGRESS = 'kkm_v3_progress';        // ★新：文字ごとの学習ステージ
 const KEY_WORDS    = 'kkm_v2_words';
 const KEY_COUNT    = 'kkm_v2_count';
 const KEY_STREAK   = 'kkm_v2_streak';   // { count, lastDate }
 const KEY_BADGES   = 'kkm_v2_badges';   // 取得済みバッジID
 const KEY_VOICE    = 'kkm_v2_voice';    // 音声よみあげON/OFF
+
+/* ──────────────────────────────────────────────────────────────
+   学習ステージ（あたらしい設計）
+   ────────────────────────────────────────────────────────────── */
+// 0: 未学習
+// 1: 書き順アニメをみた
+// 2: なぞり書きを TRACE_REQUIRED 回 こなした
+// 3: ガイドなしで FREE_REQUIRED 回 れんぞくでせいかい（ほぼマスター）
+// 4: その文字を使ったことばを 1つ以上あつめた（完全マスター 💮）
+const TRACE_REQUIRED = 2;
+const FREE_REQUIRED  = 3;
+
+const STAGE_INFO = [
+  { key: 0, icon: '🔒', label: 'みがくぜん',    color: 'text-slate-400'   },
+  { key: 1, icon: '📺', label: 'かきじゅん',   color: 'text-sky-500'     },
+  { key: 2, icon: '✏️', label: 'なぞりがき',   color: 'text-emerald-500' },
+  { key: 3, icon: '✒️', label: 'じぶんでかく', color: 'text-violet-500'  },
+  { key: 4, icon: '💮', label: 'かんぺき',     color: 'text-amber-500'   },
+];
+
+function newStageObj(stage=0) {
+  return { stage, traced: 0, free: 0, freeStreak: 0, sawAnime: false };
+}
+function getStage(progress, char) { return progress?.[char]?.stage ?? 0; }
+function getMasteredList(progress) {
+  return Object.keys(progress || {}).filter(c => progress[c].stage >= 4);
+}
+function getUsableInWordsList(progress) {
+  // ステージ3以上の文字は「ことばあつめ」に使える（ことばを使うことでステージ4に到達できる）
+  return Object.keys(progress || {}).filter(c => progress[c].stage >= 3);
+}
+function loadInitialProgress() {
+  try {
+    const r = localStorage.getItem(KEY_PROGRESS);
+    if (r != null) return JSON.parse(r);
+    // 旧 mastered からの移行（既存ユーザーの進捗を維持）
+    const old = JSON.parse(localStorage.getItem(KEY_MASTERED) || '[]');
+    const initial = {};
+    old.forEach(c => {
+      initial[c] = { stage: 4, traced: TRACE_REQUIRED, free: FREE_REQUIRED, freeStreak: FREE_REQUIRED, sawAnime: true };
+    });
+    return initial;
+  } catch { return {}; }
+}
 
 /* ──────────────────────────────────────────────────────────────
    2. 音と演出
@@ -406,9 +451,10 @@ function ModeTabsMobile({ view, setView }) {
 /* ──────────────────────────────────────────────────────────────
    11. <DailyChallenge> ── きょうの もじ
    ────────────────────────────────────────────────────────────── */
-function DailyChallenge({ char, kanaMode, mastered, onPick }) {
+function DailyChallenge({ char, kanaMode, progress, onPick }) {
   if (!char) return null;
-  const isMastered = mastered.includes(char);
+  const stage = getStage(progress, char);
+  const isMastered = stage >= 4;
   return (
     <button onClick={() => onPick(char)}
       className="w-full bg-gradient-to-r from-amber-100 via-rose-50 to-amber-100 border-2 border-amber-300 rounded-2xl p-3 flex items-center gap-3 shadow-sm hover:shadow-md transition-all active:scale-[0.99]">
@@ -431,7 +477,7 @@ function DailyChallenge({ char, kanaMode, mastered, onPick }) {
 /* ──────────────────────────────────────────────────────────────
    12. <KanaTable>
    ────────────────────────────────────────────────────────────── */
-function KanaTable({ kanaMode, setKanaMode, mastered, currentChar, onSelect, onSequence, onRandom }) {
+function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onSequence, onRandom }) {
   const table = kanaMode === 'katakana' ? KATA_TABLE : HIRA_TABLE;
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-amber-100 p-3 md:p-4 flex flex-col h-full">
@@ -450,20 +496,32 @@ function KanaTable({ kanaMode, setKanaMode, mastered, currentChar, onSelect, onS
         <div className="grid grid-cols-5 gap-1.5 md:gap-2 max-w-sm mx-auto">
           {table.map((char, i) => {
             if (!char) return <div key={i} className="aspect-square"/>;
-            const isMastered = mastered.includes(char);
-            const isCurrent  = currentChar === char;
+            const stage = getStage(progress, char);
+            const isCurrent = currentChar === char;
+            // ステージに応じた見た目
+            let cls = 'bg-white text-slate-700 border-amber-200 hover:bg-amber-50';
+            if (stage === 1) cls = 'bg-sky-50 text-sky-700 border-sky-300';
+            else if (stage === 2) cls = 'bg-emerald-50 text-emerald-700 border-emerald-300';
+            else if (stage === 3) cls = 'bg-violet-50 text-violet-700 border-violet-400 ring-1 ring-violet-200';
+            else if (stage === 4) cls = 'bg-amber-100 text-amber-700 border-amber-400 ring-2 ring-amber-300';
+            if (isCurrent) cls = 'bg-sky-400 text-white border-sky-500 scale-110 z-10 shadow-lg';
+            const info = STAGE_INFO[stage];
             return (
               <button key={i} onClick={() => onSelect(char)}
-                className={`aspect-square rounded-lg font-black text-2xl md:text-3xl border-2 shadow-sm relative transition-all active:scale-95 ${
-                  isCurrent ? 'bg-sky-400 text-white border-sky-500 scale-110 z-10 shadow-lg'
-                  : isMastered ? 'bg-amber-100 text-amber-700 border-amber-400'
-                  : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-50'
-                }`}>
+                className={`aspect-square rounded-lg font-black text-2xl md:text-3xl border-2 shadow-sm relative transition-all active:scale-95 ${cls}`}>
                 {char}
-                {isMastered && !isCurrent && <span className="absolute -top-1 -right-1 text-xs">💮</span>}
+                {!isCurrent && stage > 0 && (
+                  <span className="absolute -top-1 -right-1 text-xs leading-none">{info.icon}</span>
+                )}
               </button>
             );
           })}
+        </div>
+        {/* ステージはんれい */}
+        <div className="mt-2 flex flex-wrap justify-center gap-x-2 gap-y-1 text-[10px] font-black text-slate-500 px-1">
+          {STAGE_INFO.slice(1).map(s => (
+            <span key={s.key} className="inline-flex items-center gap-0.5"><span>{s.icon}</span><span className={s.color}>{s.label}</span></span>
+          ))}
         </div>
       </div>
 
@@ -486,7 +544,23 @@ function KanaTable({ kanaMode, setKanaMode, mastered, currentChar, onSelect, onS
    ────────────────────────────────────────────────────────────── */
 const TOLERANCE = 0.22; // 始点・終点の許容範囲（大きいほど優しい）
 
-function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
+// ステージごとの初期メッセージ
+function stageMascotMessage(char, stage, so) {
+  if (!char) return '';
+  if (stage === 0) return `「${char}」の かきじゅんを みてみよう！`;
+  if (stage === 1) {
+    const left = Math.max(0, TRACE_REQUIRED - (so?.traced || 0));
+    return `お手本を なぞって かこう！（あと ${left}かい）`;
+  }
+  if (stage === 2) {
+    const left = Math.max(0, FREE_REQUIRED - (so?.freeStreak || 0));
+    return `じぶんで かいてみよう！（れんぞく ${so?.freeStreak || 0}/${FREE_REQUIRED}）`;
+  }
+  if (stage === 3) return 'もうすこし！ ことばを 1こ あつめて 💮 にしよう！';
+  return '💮 かんぺき！ もう いちど かいてみる？';
+}
+
+function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onNext, playMode, practiceCount, voiceOn, onGoToWords }) {
   const writeRef = useRef(null);
   const inkRef   = useRef(null);
   const guideRef = useRef(null);
@@ -497,23 +571,58 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
   const [hasMistaken, setHasMistaken] = useState(false);
   const [mascotMsg, setMascotMsg] = useState('');
   const [mascotMood, setMascotMood] = useState('cheer');
+  const prevStageRef = useRef(stageObj?.stage ?? 0);
+  const [stageUp, setStageUp] = useState(null); // { from, to }
   const drawingRef = useRef(false);
   const lastRef    = useRef({ x: 0, y: 0 });
 
+  // ステージから派生するモード
+  const stage = stageObj?.stage ?? 0;
+  const isTraceMode = stage < 2;   // ステージ0,1 → なぞり書き（ガイド表示）
   // 最新stateをrefにキャッシュ（native event listenerでのstale closure対策）
   const stateRef = useRef({});
-  stateRef.current = { paths, currentStroke, isCleared, char, mistakes, hasMistaken, voiceOn };
+  stateRef.current = { paths, currentStroke, isCleared, char, mistakes, hasMistaken, voiceOn, stage };
 
   /* --- ライフサイクル --- */
   useEffect(() => {
     setCurrentStroke(0); setIsCleared(false);
-    setMistakes(0); setHasMistaken(false); setShowAnime(false);
-    setMascotMsg(char ? `「${char}」を かこう！` : '');
-    setMascotMood('cheer');
+    setMistakes(0); setHasMistaken(false);
+    // 未学習の文字を選んだら、まず書き順アニメを自動再生（スキップ可）
+    const initialStage = stageObj?.stage ?? 0;
+    prevStageRef.current = initialStage;
+    if (char && initialStage === 0) {
+      setShowAnime(true);
+    } else {
+      setShowAnime(false);
+    }
+    setMascotMsg(char ? stageMascotMessage(char, initialStage, stageObj) : '');
+    setMascotMood(initialStage >= 4 ? 'wow' : 'cheer');
     clearAll();
     if (paths) requestAnimationFrame(() => { resize(); redrawGuide(); });
     if (char && voiceOn) setTimeout(() => speakText(char, voiceOn), 200);
+    // eslint-disable-next-line
   }, [char, paths]);
+
+  // ステージアップ検知
+  useEffect(() => {
+    const prev = prevStageRef.current;
+    if (stage > prev) {
+      setStageUp({ from: prev, to: stage });
+      if (stage === 3) {
+        setMascotMsg('もうすこし！ ことばを 1こ あつめて 💮 にしよう！');
+        setMascotMood('wow');
+        playFanfare();
+      } else if (stage === 2) {
+        setMascotMsg('なぞりばっちり！ こんどは ガイドなしで かいてみよう！');
+        setMascotMood('wow');
+        playPingPong();
+      } else if (stage === 4) {
+        setMascotMsg('💮 かんぺき！');
+        setMascotMood('wow');
+      }
+    }
+    prevStageRef.current = stage;
+  }, [stage]);
 
   useEffect(() => {
     const onR = () => { resize(); redrawGuide(); redrawInk(); };
@@ -522,6 +631,8 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
   }, []);
 
   useEffect(() => { redrawInk(); /* eslint-disable-line */ }, [currentStroke, paths]);
+  // ステージが変わるとガイドの表示も切り替わる
+  useEffect(() => { redrawGuide(); /* eslint-disable-line */ }, [stage]);
 
   /* --- ネイティブイベント（passive:false でpreventDefault可能に） --- */
   useEffect(() => {
@@ -565,6 +676,8 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
     if (!c || !p) return;
     const ctx = c.getContext('2d'); const s = c.width;
     ctx.clearRect(0,0,s,s);
+    // 自力モード（ステージ2以上）ではガイドを描かない
+    if (stateRef.current.stage >= 2) return;
     ctx.save(); ctx.scale(s/109, s/109);
     ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     p.forEach(d => ctx.stroke(new Path2D(d)));
@@ -639,7 +752,13 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
         setIsCleared(true); playFanfare(); burstConfetti();
         setMascotMsg('💮 よくできました！'); setMascotMood('wow');
         if (voiceOn) setTimeout(() => speakText('よくできました', voiceOn), 200);
-        onMastered(ch, !hm);
+        onRoundComplete(ch, !hm);
+        // 同じ文字でくり返し練習できるよう、少し待ってからキャンバスをリセット
+        setTimeout(() => {
+          setCurrentStroke(0); setIsCleared(false);
+          setMistakes(0); setHasMistaken(false);
+          clearAll(); redrawGuide();
+        }, 1500);
       } else {
         playPingPong();
         setMascotMsg('いい ちょうし！'); setMascotMood('happy');
@@ -652,6 +771,10 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
   function onMistake() {
     playBuzzer();
     setHasMistaken(true);
+    // 自力モード（ステージ2以上）では、ミスした瞬間にれんぞくカウントをリセット
+    if (stateRef.current.stage >= 2) {
+      onMistakeStreakReset && onMistakeStreakReset(stateRef.current.char);
+    }
     setMistakes(m => {
       const nm = m + 1;
       if (nm >= 3) {
@@ -683,8 +806,10 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-100 p-3 md:p-4 flex flex-col h-full">
       <div className="flex justify-between items-center mb-2 shrink-0 gap-2">
-        <span className="text-xs md:text-sm font-bold text-orange-600 bg-orange-100 px-3 py-1 rounded-full truncate">
-          {char ? `「${char}」を なぞって かこう` : 'もじを えらんでね 👆'}
+        <span className={`text-xs md:text-sm font-bold px-3 py-1 rounded-full truncate ${
+          isTraceMode ? 'text-emerald-700 bg-emerald-100' : 'text-violet-700 bg-violet-100'
+        }`}>
+          {char ? (isTraceMode ? `「${char}」を なぞって かこう` : `「${char}」を じぶんで かこう`) : 'もじを えらんでね 👆'}
         </span>
         {char && (
           <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full shrink-0">
@@ -692,6 +817,11 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
           </span>
         )}
       </div>
+
+      {/* ステージ・ステッパー */}
+      {char && (
+        <StageStepper stage={stage} stageObj={stageObj}/>
+      )}
 
       {char && (
         <div className="mb-2 shrink-0">
@@ -727,6 +857,14 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
         </div>
       </div>
 
+      {/* ステージ3 → ことばで💮 への大きなCTA */}
+      {char && stage === 3 && (
+        <button onClick={onGoToWords}
+          className="mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-300 text-amber-900 font-black text-sm md:text-base shadow border-b-4 border-amber-500 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0">
+          🎀 ことばを 1こ あつめて 💮 にしよう！
+        </button>
+      )}
+
       <div className="flex gap-2 mt-3 shrink-0">
         <button onClick={restart} disabled={!char}
           className="flex-1 py-2.5 rounded-xl font-black text-sm md:text-base bg-orange-50 text-orange-600 shadow-sm border-b-4 border-orange-200 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1.5">
@@ -742,8 +880,77 @@ function PracticeBoard({ char, paths, onMastered, practiceCount, voiceOn }) {
         </button>
       </div>
 
-      {showAnime && paths && <StrokeOrderAnime paths={paths} char={char} onClose={() => setShowAnime(false)}/>}
+      {showAnime && paths && (
+        <StrokeOrderAnime paths={paths} char={char}
+          onClose={() => { setShowAnime(false); onAnimeViewed && onAnimeViewed(char); }}/>
+      )}
       {isCleared && <ExcellentPopup/>}
+      {stageUp && <StageUpPopup info={stageUp} onClose={() => setStageUp(null)} onGoToWords={onGoToWords}/>}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   13.5. <StageStepper> / <StageUpPopup>
+   ────────────────────────────────────────────────────────────── */
+function StageStepper({ stage, stageObj }) {
+  const steps = [
+    { idx: 1, icon: '📺', label: 'かきじゅん' },
+    { idx: 2, icon: '✏️', label: 'なぞる',   sub: `${Math.min(stageObj?.traced || 0, TRACE_REQUIRED)}/${TRACE_REQUIRED}` },
+    { idx: 3, icon: '✒️', label: 'じぶんで', sub: `${Math.min(stageObj?.freeStreak || 0, FREE_REQUIRED)}/${FREE_REQUIRED}` },
+    { idx: 4, icon: '💮', label: 'ことば' },
+  ];
+  return (
+    <div className="flex items-stretch gap-0.5 md:gap-1 mb-2 shrink-0 text-[10px] md:text-xs font-black">
+      {steps.map((s, i) => {
+        const done = stage >= s.idx;
+        const active = stage + 1 === s.idx || (stage === s.idx && s.idx < 4) || (stage === 0 && s.idx === 1);
+        const cls = done
+          ? 'bg-amber-200 text-amber-800 border-amber-400'
+          : active
+            ? 'bg-white text-slate-700 border-amber-300 ring-2 ring-amber-200'
+            : 'bg-slate-50 text-slate-400 border-slate-200';
+        return (
+          <div key={i} className={`flex-1 rounded-lg border-2 px-1 py-1 text-center ${cls}`}>
+            <div className="text-base md:text-lg leading-none">{done ? '✅' : s.icon}</div>
+            <div className="leading-tight mt-0.5">{s.label}</div>
+            {s.sub && !done && active && <div className="text-[9px] opacity-70">{s.sub}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StageUpPopup({ info, onClose, onGoToWords }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    setShow(true);
+    // ステージ3に上がったときは、ことばあつめへの導線を残すため長めに表示
+    const dur = info.to === 3 ? 5500 : 2200;
+    const t = setTimeout(() => { setShow(false); setTimeout(onClose, 400); }, dur);
+    return () => clearTimeout(t);
+  }, [onClose, info.to]);
+  const msgMap = {
+    2: { title: 'なぞり クリア！', sub: 'つぎは じぶんで かいてみよう！', color: 'from-emerald-200 to-emerald-100 border-emerald-400 text-emerald-700' },
+    3: { title: 'ほぼマスター！', sub: 'ことばを 1こ あつめれば 💮 かんぺき！', color: 'from-violet-200 to-violet-100 border-violet-400 text-violet-700' },
+    4: { title: '💮 かんぺき！', sub: 'ほんとうに じぶんの じに なったよ！', color: 'from-amber-200 to-amber-100 border-amber-400 text-amber-700' },
+  };
+  const m = msgMap[info.to] || msgMap[4];
+  return (
+    <div className={`fixed inset-0 z-[180] pointer-events-none flex items-center justify-center transition-all duration-400 ${
+      show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+    }`}>
+      <div className={`bg-gradient-to-br ${m.color} px-5 md:px-8 py-4 md:py-6 rounded-3xl shadow-2xl border-4 max-w-sm mx-3 text-center pointer-events-auto -rotate-2`}>
+        <div className="text-xl md:text-3xl font-black">{m.title}</div>
+        <div className="text-xs md:text-base font-black mt-1 opacity-90">{m.sub}</div>
+        {info.to === 3 && onGoToWords && (
+          <button onClick={onGoToWords}
+            className="mt-3 px-4 py-2 rounded-xl bg-white text-violet-700 font-black text-sm shadow border-b-4 border-violet-400 active:translate-y-0.5 active:border-b-2">
+            ことばずかんへ →
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -876,6 +1083,42 @@ function ExcellentPopup() {
 }
 
 /* ──────────────────────────────────────────────────────────────
+   15.5. <WordMasterPopup> ── ことばで文字が💮になった瞬間の演出
+   ────────────────────────────────────────────────────────────── */
+function WordMasterPopup({ info, onClose }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    setShow(true);
+    const t = setTimeout(() => { setShow(false); setTimeout(onClose, 400); }, 3200);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  if (!info) return null;
+  return (
+    <div className={`fixed inset-0 z-[350] pointer-events-none flex items-center justify-center transition-all duration-500 ${
+      show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+    }`}>
+      <div className="bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100 px-6 md:px-10 py-5 md:py-7 rounded-3xl shadow-2xl border-4 border-amber-400 max-w-md mx-3 pointer-events-auto" onClick={onClose}>
+        <div className="text-center">
+          <div className="text-xs md:text-sm font-black text-amber-700 opacity-80 mb-1">🎉 ことばで めざめたよ！</div>
+          <div className="flex justify-center gap-2 my-2 md:my-3">
+            {info.chars.map((c, i) => (
+              <div key={i} className="relative">
+                <span className="inline-block bg-white rounded-2xl border-4 border-amber-400 w-14 h-14 md:w-20 md:h-20 flex items-center justify-center text-3xl md:text-5xl font-black text-amber-700 shadow-lg animate-pulse">{c}</span>
+                <span className="absolute -top-2 -right-2 text-2xl md:text-3xl">💮</span>
+              </div>
+            ))}
+          </div>
+          <div className="text-base md:text-xl font-black text-amber-700 mt-1">
+            「{info.text}」で <span className="text-rose-500">かんぺき</span>！
+          </div>
+          <div className="text-[10px] md:text-xs text-amber-600 mt-2 opacity-80">タップしてとじる</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
    16. <BadgeToast> ── バッジ獲得トースト
    ────────────────────────────────────────────────────────────── */
 function BadgeToast({ badge, onClose }) {
@@ -975,12 +1218,14 @@ function AchievementsModal({ earned, mastered, words, streak, onClose }) {
 /* ──────────────────────────────────────────────────────────────
    18. <WordCollection> ── ことばあつめ
    ────────────────────────────────────────────────────────────── */
-function WordCollection({ kanaMode, setKanaMode, mastered, words, onAdd, onDelete, voiceOn }) {
+function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWords, words, onAdd, onDelete, voiceOn }) {
   const [addOpen, setAddOpen] = useState(false);
   const collected = words.filter(w => w.kanaMode === kanaMode);
   const hints = kanaMode === 'katakana' ? WORD_HINTS_KATA : WORD_HINTS_HIRA;
   const list  = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
-  const availableHints = hints.filter(h => h.w.split('').every(c => mastered.includes(c)) && !words.some(w => w.text === h.w));
+  const availableHints = hints.filter(h => h.w.split('').every(c => usableInWords.includes(c)) && !words.some(w => w.text === h.w));
+  // ステージ3（あと一歩で💮）の文字一覧 — モチベーション用
+  const almostChars = (kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST).filter(c => getStage(progress, c) === 3);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-amber-100 p-3 md:p-5 flex flex-col h-full overflow-hidden">
@@ -1026,18 +1271,43 @@ function WordCollection({ kanaMode, setKanaMode, mastered, words, onAdd, onDelet
         )}
       </div>
 
+      {/* あとひと押しで 💮 になる文字（モチベ強化） */}
+      {almostChars.length > 0 && (
+        <div className="bg-gradient-to-r from-violet-50 via-fuchsia-50 to-violet-50 border-2 border-violet-300 rounded-xl p-2.5 mb-3 shrink-0">
+          <div className="flex items-center gap-1.5 text-xs font-black text-violet-700 mb-1.5">
+            ✨ この じを つかうと 💮 に なるよ！
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {almostChars.map(c => (
+              <span key={c} className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white border-2 border-violet-400 font-black text-violet-700 text-xl shadow-sm">
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {availableHints.length > 0 && (
         <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-2.5 mb-3 shrink-0">
           <div className="flex items-center gap-1.5 text-xs font-black text-yellow-700 mb-1.5">
             <IconBulb size={14}/> いまの じで つくれる ことば
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {availableHints.slice(0, 8).map(h => (
-              <button key={h.w} onClick={() => { onAdd({ text: h.w, emoji: h.e, kanaMode }); speakText(h.w, voiceOn); }}
-                className="bg-white border border-yellow-300 rounded-full px-2.5 py-1 text-xs font-black text-yellow-700 hover:bg-yellow-100 transition-all active:scale-95 shadow-sm">
-                {h.e} {h.w}
-              </button>
-            ))}
+            {availableHints.slice(0, 8).map(h => {
+              // この単語が💮を作る数を表示
+              const willMaster = h.w.split('').filter(c => getStage(progress, c) === 3).length;
+              return (
+                <button key={h.w} onClick={() => { onAdd({ text: h.w, emoji: h.e, kanaMode }); speakText(h.w, voiceOn); }}
+                  className={`relative border rounded-full px-2.5 py-1 text-xs font-black transition-all active:scale-95 shadow-sm ${
+                    willMaster > 0 ? 'bg-amber-100 border-amber-400 text-amber-800 ring-2 ring-amber-200' : 'bg-white border-yellow-300 text-yellow-700 hover:bg-yellow-100'
+                  }`}>
+                  {h.e} {h.w}
+                  {willMaster > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[9px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">+{willMaster}💮</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1048,7 +1318,7 @@ function WordCollection({ kanaMode, setKanaMode, mastered, words, onAdd, onDelet
       </button>
 
       {addOpen && (
-        <WordAddModal kanaMode={kanaMode} mastered={mastered} list={list} voiceOn={voiceOn}
+        <WordAddModal kanaMode={kanaMode} progress={progress} usableInWords={usableInWords} list={list} voiceOn={voiceOn}
           onCancel={() => setAddOpen(false)}
           onSave={(w) => { onAdd(w); speakText(w.text, voiceOn); setAddOpen(false); }}/>
       )}
@@ -1059,11 +1329,13 @@ function WordCollection({ kanaMode, setKanaMode, mastered, words, onAdd, onDelet
 /* ──────────────────────────────────────────────────────────────
    19. <WordAddModal>
    ────────────────────────────────────────────────────────────── */
-function WordAddModal({ kanaMode, mastered, list, voiceOn, onCancel, onSave }) {
+function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCancel, onSave }) {
   const [text, setText] = useState('');
   const [emoji, setEmoji] = useState(EMOJI_CHOICES[0]);
   const table = kanaMode === 'katakana' ? KATA_TABLE : HIRA_TABLE;
   const canSave = text.length >= 1;
+  // この単語で💮になる数（プレビュー）
+  const willMaster = useMemo(() => Array.from(new Set(text.split(''))).filter(c => getStage(progress, c) === 3), [text, progress]);
   function addChar(c) { if (text.length < 8) { setText(t => t + c); speakText(c, voiceOn); } }
   function backspace() { setText(t => t.slice(0, -1)); }
 
@@ -1106,18 +1378,38 @@ function WordAddModal({ kanaMode, mastered, list, voiceOn, onCancel, onSave }) {
           </div>
         </div>
 
+        {willMaster.length > 0 && (
+          <div className="mb-2 bg-gradient-to-r from-amber-100 via-yellow-100 to-amber-100 border-2 border-amber-400 rounded-xl px-3 py-2 text-center text-xs md:text-sm font-black text-amber-800">
+            ✨ この ことばで <span className="text-rose-500 text-base">{willMaster.length}</span>こ の じが 💮 になるよ！
+            <div className="mt-1 flex justify-center gap-1.5">
+              {willMaster.map(c => (
+                <span key={c} className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-white border-2 border-amber-400 text-amber-700 text-base">{c}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mb-3">
-          <div className="text-xs font-black text-slate-500 mb-1.5">まだ おぼえてない じは つかえないよ</div>
+          <div className="text-xs font-black text-slate-500 mb-1.5">じぶんで かける じだけ つかえるよ（💮 = ことばで かんぺき）</div>
           <div className="grid grid-cols-5 gap-1.5 bg-amber-50/40 p-2 rounded-xl border border-amber-100">
             {table.map((c, i) => {
               if (!c) return <div key={i} className="aspect-square"/>;
-              const ok = mastered.includes(c);
+              const ok = usableInWords.includes(c);
+              const stage = getStage(progress, c);
+              const willPromote = stage === 3;
               return (
                 <button key={i} disabled={!ok} onClick={() => addChar(c)}
-                  className={`aspect-square rounded-lg font-black text-xl md:text-2xl border-2 transition-all active:scale-95 ${
-                    ok ? 'bg-white border-amber-300 text-amber-700 hover:bg-amber-100 shadow-sm'
-                       : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed opacity-60'
-                  }`}>{c}</button>
+                  className={`relative aspect-square rounded-lg font-black text-xl md:text-2xl border-2 transition-all active:scale-95 ${
+                    ok
+                      ? (willPromote
+                          ? 'bg-violet-50 border-violet-400 text-violet-700 hover:bg-violet-100 shadow-sm ring-2 ring-violet-200'
+                          : 'bg-white border-amber-300 text-amber-700 hover:bg-amber-100 shadow-sm')
+                      : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed opacity-60'
+                  }`}>
+                  {c}
+                  {willPromote && <span className="absolute -top-1 -right-1 text-[10px]">✨</span>}
+                  {stage === 4 && <span className="absolute -top-1 -right-1 text-[10px]">💮</span>}
+                </button>
               );
             })}
           </div>
@@ -1161,7 +1453,7 @@ function ResetModal({ onCancel, onConfirm }) {
 /* ──────────────────────────────────────────────────────────────
    21. <MainBoard>
    ────────────────────────────────────────────────────────────── */
-function MainBoard({ kanaMode, setKanaMode, mastered, addMastered, practiceCount, bumpCount, voiceOn }) {
+function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, onRoundComplete, onMistakeStreakReset, practiceCount, voiceOn, onGoToWords }) {
   const [currentChar, setCurrentChar] = useState(null);
   const [paths, setPaths] = useState(null);
   const [playMode, setPlayMode] = useState('free');
@@ -1175,12 +1467,12 @@ function MainBoard({ kanaMode, setKanaMode, mastered, addMastered, practiceCount
 
   function startSequence() {
     const list = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
-    const target = list.find(c => !mastered.includes(c)) || list[0];
+    const target = list.find(c => getStage(progress, c) < 4) || list[0];
     selectChar(target, 'sequential');
   }
   function startRandom() {
     const list = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
-    let pool = list.filter(c => !mastered.includes(c));
+    let pool = list.filter(c => getStage(progress, c) < 4);
     if (pool.length === 0) pool = list;
     const target = pool[Math.floor(Math.random()*pool.length)];
     selectChar(target, 'random');
@@ -1193,24 +1485,36 @@ function MainBoard({ kanaMode, setKanaMode, mastered, addMastered, practiceCount
     const nx  = list[(idx+1) % list.length];
     selectChar(nx, playMode);
   }
-  function handleMastered(char, firstTry) {
-    bumpCount(char);
-    if (firstTry) addMastered(char);
-    setTimeout(() => { if (playMode !== 'free') nextChar(); }, 1500);
-  }
   useEffect(() => { setCurrentChar(null); setPaths(null); }, [kanaMode]);
+
+  const stageObj = currentChar ? (progress[currentChar] || newStageObj()) : null;
+
+  // sequence/random モードでは、現在の文字がステージ4に到達したら自動で次の文字へ
+  useEffect(() => {
+    if (!currentChar) return;
+    if (playMode === 'free') return;
+    if (stageObj && stageObj.stage >= 4) {
+      const t = setTimeout(() => nextChar(), 1800);
+      return () => clearTimeout(t);
+    }
+  }, [currentChar, stageObj?.stage, playMode]);
 
   return (
     <div className="flex-1 flex flex-col p-3 md:p-4 min-h-0 overflow-hidden gap-3">
-      <DailyChallenge char={dailyChar} kanaMode={kanaMode} mastered={mastered}
+      <DailyChallenge char={dailyChar} kanaMode={kanaMode} progress={progress}
         onPick={(c) => selectChar(c, 'free')}/>
       <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 min-h-0 overflow-hidden">
         <KanaTable kanaMode={kanaMode} setKanaMode={setKanaMode}
-          mastered={mastered} currentChar={currentChar}
+          progress={progress} currentChar={currentChar}
           onSelect={(c) => selectChar(c,'free')}
           onSequence={startSequence} onRandom={startRandom}/>
-        <PracticeBoard char={currentChar} paths={paths}
-          onMastered={handleMastered} practiceCount={practiceCount} voiceOn={voiceOn}/>
+        <PracticeBoard char={currentChar} paths={paths} stageObj={stageObj}
+          onAnimeViewed={onAnimeViewed}
+          onRoundComplete={onRoundComplete}
+          onMistakeStreakReset={onMistakeStreakReset}
+          onNext={nextChar} playMode={playMode}
+          practiceCount={practiceCount} voiceOn={voiceOn}
+          onGoToWords={onGoToWords}/>
       </div>
     </div>
   );
@@ -1222,7 +1526,10 @@ function MainBoard({ kanaMode, setKanaMode, mastered, addMastered, practiceCount
 function App() {
   const [view, setView] = useState('practice');
   const [kanaMode, setKanaMode] = useState('hiragana');
-  const [mastered, setMastered] = useLocalStorage(KEY_MASTERED, []);
+  const [progress, setProgress] = useState(loadInitialProgress);
+  useEffect(() => { try { localStorage.setItem(KEY_PROGRESS, JSON.stringify(progress)); } catch {} }, [progress]);
+  const mastered = useMemo(() => getMasteredList(progress), [progress]);
+  const usableInWords = useMemo(() => getUsableInWordsList(progress), [progress]);
   const [words, setWords]       = useLocalStorage(KEY_WORDS, []);
   const [practiceCount, setPracticeCount] = useLocalStorage(KEY_COUNT, {});
   const [earned, setEarned]     = useLocalStorage(KEY_BADGES, []);
@@ -1230,6 +1537,7 @@ function App() {
   const [resetOpen, setResetOpen] = useState(false);
   const [badgesOpen, setBadgesOpen] = useState(false);
   const [toastBadge, setToastBadge] = useState(null);
+  const [wordCelebration, setWordCelebration] = useState(null); // { chars: [...] } ことばで💮になった文字
   const streak = useStreak();
 
   // 音声リスト読み込み（ブラウザによっては遅延発火）
@@ -1244,15 +1552,88 @@ function App() {
   useAchievements({ mastered, words, streak, earned, setEarned,
     onNew: (b) => setToastBadge(b) });
 
-  const addMastered = useCallback((char) => {
-    setMastered(prev => prev.includes(char) ? prev : [...prev, char]);
-  }, [setMastered]);
   const bumpCount = useCallback((char) => {
     setPracticeCount(prev => ({ ...prev, [char]: (prev[char] || 0) + 1 }));
   }, [setPracticeCount]);
+
+  // ステージ1：書き順アニメをみた
+  const onAnimeViewed = useCallback((char) => {
+    if (!char) return;
+    setProgress(prev => {
+      const cur = prev[char] || newStageObj();
+      if (cur.sawAnime && cur.stage >= 1) return prev;
+      return { ...prev, [char]: { ...cur, sawAnime: true, stage: Math.max(cur.stage, 1) } };
+    });
+  }, []);
+
+  // 1ラウンド完了（書き順すべて成功）：ステージに応じてカウンタを更新
+  // 戻り値：{ newStage, prevStage } を呼び出し側のためにrefで返したいが、
+  // setProgress内では難しいのでイベント駆動の通知はsetterで完結させる
+  const onRoundComplete = useCallback((char, clean) => {
+    if (!char) return;
+    bumpCount(char);
+    setProgress(prev => {
+      const cur = prev[char] || newStageObj();
+      let next = { ...cur };
+      if (next.stage < 2) {
+        // なぞり書きフェーズ：きれいさは問わずカウント
+        next.traced = (next.traced || 0) + 1;
+        next.sawAnime = true; // アニメみずに直接練習した場合もここで保証
+        if (next.traced >= TRACE_REQUIRED) next.stage = 2;
+        else next.stage = Math.max(next.stage, 1);
+      } else if (next.stage < 4) {
+        // 自力フェーズ：cleanのときだけれんぞくカウントを伸ばす
+        next.free = (next.free || 0) + 1;
+        if (clean) {
+          next.freeStreak = (next.freeStreak || 0) + 1;
+          if (next.freeStreak >= FREE_REQUIRED && next.stage < 3) next.stage = 3;
+        } else {
+          next.freeStreak = 0;
+        }
+      } else {
+        // すでに完全マスター：カウントだけ伸ばす
+        next.free = (next.free || 0) + 1;
+        if (clean) next.freeStreak = (next.freeStreak || 0) + 1;
+        else next.freeStreak = 0;
+      }
+      return { ...prev, [char]: next };
+    });
+  }, [bumpCount]);
+
+  // 自力モードでミスした瞬間：れんぞくカウントをリセット（ラウンドの途中ミスもペナルティ）
+  const onMistakeStreakReset = useCallback((char) => {
+    if (!char) return;
+    setProgress(prev => {
+      const cur = prev[char];
+      if (!cur || cur.freeStreak === 0 || cur.stage < 2) return prev;
+      return { ...prev, [char]: { ...cur, freeStreak: 0 } };
+    });
+  }, []);
+
   const addWord = useCallback((w) => {
     setWords(prev => [...prev, { id: Date.now() + Math.random(), ...w, date: Date.now() }]);
     playPickup();
+    // ことばに使った文字のうち、ステージ3だったものをステージ4へ昇格
+    const chars = Array.from(new Set((w.text || '').split('')));
+    setProgress(prev => {
+      const advanced = [];
+      const next = { ...prev };
+      chars.forEach(c => {
+        const cur = next[c];
+        if (cur && cur.stage === 3) {
+          next[c] = { ...cur, stage: 4 };
+          advanced.push(c);
+        }
+      });
+      if (advanced.length > 0) {
+        setTimeout(() => {
+          playFanfare();
+          burstConfetti();
+          setWordCelebration({ chars: advanced, text: w.text });
+        }, 50);
+      }
+      return next;
+    });
   }, [setWords]);
   const deleteWord = useCallback((id) => {
     setWords(prev => prev.filter(w => w.id !== id));
@@ -1272,12 +1653,17 @@ function App() {
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {view === 'practice' ? (
           <MainBoard kanaMode={kanaMode} setKanaMode={setKanaMode}
-            mastered={mastered} addMastered={addMastered}
-            practiceCount={practiceCount} bumpCount={bumpCount} voiceOn={voiceOn}/>
+            progress={progress} mastered={mastered}
+            onAnimeViewed={onAnimeViewed}
+            onRoundComplete={onRoundComplete}
+            onMistakeStreakReset={onMistakeStreakReset}
+            practiceCount={practiceCount} voiceOn={voiceOn}
+            onGoToWords={() => setView('words')}/>
         ) : (
           <div className="flex-1 p-3 md:p-4 min-h-0 overflow-hidden">
             <WordCollection kanaMode={kanaMode} setKanaMode={setKanaMode}
-              mastered={mastered} words={words}
+              progress={progress} mastered={mastered} usableInWords={usableInWords}
+              words={words}
               onAdd={addWord} onDelete={deleteWord} voiceOn={voiceOn}/>
           </div>
         )}
@@ -1289,6 +1675,7 @@ function App() {
       {badgesOpen  && <AchievementsModal earned={earned} mastered={mastered} words={words} streak={streak}
                           onClose={() => setBadgesOpen(false)}/>}
       {toastBadge  && <BadgeToast badge={toastBadge} onClose={() => setToastBadge(null)}/>}
+      {wordCelebration && <WordMasterPopup info={wordCelebration} onClose={() => setWordCelebration(null)}/>}
     </div>
   );
 }
