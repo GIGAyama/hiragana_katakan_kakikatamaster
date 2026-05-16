@@ -851,6 +851,9 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   // 自力モードでユーザーが書いた画ごとの点列 [{points:[{x,y in 0..1}]}, ...]
   const userStrokesRef   = useRef([]);
   const currentPointsRef = useRef([]);
+  // なぞり書きモード：失敗した画を取り消すために、画の書き始め直前の
+  // writeRef キャンバスをスナップショットしておく
+  const traceSnapshotRef = useRef(null);
 
   // ステージから派生するモード
   const stage = stageObj?.stage ?? 0;
@@ -874,7 +877,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     setMascotMsg(char ? stageMascotMessage(char, initialStage, stageObj) : '');
     setMascotMood(initialStage >= 4 ? 'wow' : 'cheer');
     clearAll();
-    if (paths) requestAnimationFrame(() => { resize(); redrawGuide(); });
+    if (char) requestAnimationFrame(() => { resize(); redrawGuide(); });
     if (char && voiceOn) setTimeout(() => speakText(char, voiceOn), 200);
     // eslint-disable-next-line
   }, [char, paths]);
@@ -923,6 +926,14 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     return () => window.removeEventListener('resize', onR);
   }, []);
 
+  // Web フォント（Klee One）読み込み後にガイドを再描画
+  useEffect(() => {
+    if (!document.fonts || !document.fonts.ready) return;
+    document.fonts.ready.then(() => {
+      if (stateRef.current.char) redrawGuide();
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => { redrawInk(); /* eslint-disable-line */ }, [currentStroke, paths]);
   // ステージが変わるとガイドの表示も切り替わる
   useEffect(() => { redrawGuide(); /* eslint-disable-line */ }, [stage]);
@@ -954,6 +965,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     });
     userStrokesRef.current = [];
     currentPointsRef.current = [];
+    traceSnapshotRef.current = null;
   }
   function resize() {
     const c = writeRef.current; if (!c) return;
@@ -967,31 +979,31 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     });
   }
   function redrawGuide() {
-    const c = guideRef.current; const p = stateRef.current.paths;
-    if (!c || !p) return;
+    const c = guideRef.current; if (!c) return;
     const ctx = c.getContext('2d'); const s = c.width;
-    ctx.clearRect(0,0,s,s);
+    ctx.clearRect(0, 0, s, s);
     // 自力モード（ステージ2以上）ではガイドを描かない
     if (stateRef.current.stage >= 2) return;
-    ctx.save(); ctx.scale(s/109, s/109);
-    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    p.forEach(d => ctx.stroke(new Path2D(d)));
+    const ch = stateRef.current.char;
+    if (!ch) return;
+    // 教科書体（OS バンドル）→ Klee One（Web フォント）→ 丸ゴ の順でフォールバック。
+    // 画ごとのストロークデータは KanjiVG が引き続き持つので、書き順アニメ・
+    // 始点マーカー・採点ロジックは変わらない。
+    ctx.save();
+    ctx.fillStyle = '#e2e8f0'; // slate-200
+    const fontSize = Math.round(s * 0.86);
+    ctx.font = `${fontSize}px 'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText(ch, s / 2, s / 2);
     ctx.restore();
   }
+  // 旧 inkRef（KanjiVG ストロークで完了画を表示）はガイドと字形が
+  // 揃わなくなったため使わない。クリアのみ。
   function redrawInk() {
-    const c = inkRef.current; const p = stateRef.current.paths;
-    if (!c || !p) return;
-    const ctx = c.getContext('2d'); const s = c.width;
-    ctx.clearRect(0,0,s,s);
-    // 自力モードでは「お手本」をなぞった完成インクを描かない
-    // （ユーザーが書いた線がそのまま writeRef に残る）
-    if (stateRef.current.stage >= 2) return;
-    const cs = stateRef.current.currentStroke;
-    if (cs === 0) return;
-    ctx.save(); ctx.scale(s/109, s/109);
-    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (let i = 0; i < cs; i++) ctx.stroke(new Path2D(p[i]));
-    ctx.restore();
+    const c = inkRef.current; if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
   }
 
   /* --- 座標変換ヘルパー --- */
@@ -1021,6 +1033,11 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     // 自力モード：この画の点列を新たに記録しはじめる
     if (st >= 2) currentPointsRef.current = [{ x: pt.nx, y: pt.ny }];
     const c = writeRef.current;
+    // なぞり書き：失敗時にこの画だけ取り消せるよう、書き始め前を保存
+    if (st < 2) {
+      try { traceSnapshotRef.current = c.getContext('2d').getImageData(0, 0, c.width, c.height); }
+      catch (e) { traceSnapshotRef.current = null; }
+    }
     const ctx = c.getContext('2d');
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.lineWidth = c.width * 0.07;
@@ -1061,13 +1078,12 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     const nx = lastRef.current.x / c.width;
     const ny = lastRef.current.y / c.height;
     const dist = Math.hypot(nx - target.x, ny - target.y);
-    c.getContext('2d').clearRect(0, 0, c.width, c.height);
     if (dist < TOLERANCE) {
+      // 成功：ユーザーの実筆跡は writeRef にそのまま残し、進捗のしるしにする
+      traceSnapshotRef.current = null;
       const next = cs + 1;
       setCurrentStroke(next);
       if (next >= ps.length) {
-        // 1文字書けた：くどい演出はやめ、軽い音とコメントのみ。
-        // セクション（ステージ）が変わるときは別途まとめてお祝いする。
         playPingPong();
         setMascotMsg('できたよ！'); setMascotMood('happy');
         onRoundComplete(ch, !hm);
@@ -1079,9 +1095,14 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       } else {
         playPingPong();
         setMascotMsg('いい ちょうし！'); setMascotMood('happy');
-        setMistakes(0); // この画の成功でミスカウントをリセット
+        setMistakes(0);
       }
     } else {
+      // 失敗：この画ぶんのインクだけ取り消す（既存の成功画は残す）
+      const snap = traceSnapshotRef.current;
+      if (snap) c.getContext('2d').putImageData(snap, 0, 0);
+      else c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      traceSnapshotRef.current = null;
       onMistake();
     }
   }
