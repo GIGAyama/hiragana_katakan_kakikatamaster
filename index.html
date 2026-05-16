@@ -8,10 +8,11 @@
   <!-- Tailwind CSS（CDN） -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Zen Maru Gothic フォント（指定どおり） -->
+  <!-- 教科書体フォント：Windows10+ は UDデジタル教科書体（バンドル）、
+       それ以外は Google Fonts の Klee One（教科書体スタイル）にフォールバック -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
 
   <!-- React 18 + ReactDOM 18（UMD CDN） -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -25,8 +26,8 @@
       height: 100%;
       margin: 0;
       background-color: rgb(255 251 235 / 0.4); /* amber-50/40 のフォールバック */
-      font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif;
-      font-weight: 700;
+      font-family: 'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif;
+      font-weight: 600;
       color: #334155;
       -webkit-user-select: none;
       user-select: none;

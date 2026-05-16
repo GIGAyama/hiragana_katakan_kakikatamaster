@@ -287,10 +287,24 @@ function simplifyPoints(pts) {
 function quadrantOf(p) {
   return (p.x >= 0.5 ? 1 : 0) | (p.y >= 0.5 ? 2 : 0);
 }
-function unionRooms(polys) {
-  const s = new Set();
-  for (const poly of polys) for (const p of poly) s.add(quadrantOf(p));
-  return s;
+// 線の長さで重み付けした「部屋ごとの存在割合」を返す（合計1）
+// 「点が部屋にあるか」だけでなく「どれだけ書いているか」で測るので、
+// 真ん中に小さく書いて4部屋を通過しただけ、では満点にならない。
+function roomDensity(polys) {
+  const bins = [0, 0, 0, 0];
+  let total = 0;
+  for (const poly of polys) {
+    for (let i = 1; i < poly.length; i++) {
+      const a = poly[i - 1], b = poly[i];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len === 0) continue;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      bins[quadrantOf(mid)] += len;
+      total += len;
+    }
+  }
+  if (total === 0) return bins;
+  return bins.map(v => v / total);
 }
 
 // 2線分の交差判定（端点接触は除外）
@@ -319,8 +333,41 @@ function crossPairSet(polys) {
   return pairs;
 }
 
-// 観点①：かきじゅん（0..1）
-function evalStrokeOrder(usrPolys, tplPolys) {
+// 観点①-a：かきじゅん（純粋な順番のみ）（0..1）
+// ユーザーの i 番目の画の始点が、お手本の「i 番目の画の始点」に最も近いかを判定。
+// 順番が正しい限り、書き始めの位置が多少ズレても満点。
+function evalStrokeSequence(usrPolys, tplPolys) {
+  const n = Math.min(usrPolys.length, tplPolys.length);
+  if (n === 0) return 0;
+  const tplStarts = tplPolys.map(t => (t && t.length > 0) ? t[0] : null);
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < n; i++) {
+    const u = usrPolys[i];
+    const tStart = tplStarts[i];
+    if (!u || u.length === 0 || !tStart) continue;
+    const us = u[0];
+    const correctDist = Math.hypot(us.x - tStart.x, us.y - tStart.y);
+    let bestDist = Infinity;
+    for (const ts of tplStarts) {
+      if (!ts) continue;
+      const d = Math.hypot(us.x - ts.x, us.y - ts.y);
+      if (d < bestDist) bestDist = d;
+    }
+    if (correctDist <= bestDist + 1e-6) {
+      // 正しい順番（i 番目のお手本始点が最近傍）
+      sum += 1.0;
+    } else {
+      // 他の画のほうが近い：相対距離で部分点
+      sum += (bestDist + 0.02) / (correctDist + 0.02);
+    }
+    cnt++;
+  }
+  return cnt === 0 ? 0 : sum / cnt;
+}
+
+// 観点①-b：はじめと むき（0..1）
+// 画ごとの「書き始めの位置」と「向き」がお手本と合っているかを評価。
+function evalStrokeStartAndDir(usrPolys, tplPolys) {
   const n = Math.min(usrPolys.length, tplPolys.length);
   if (n === 0) return 0;
   let sum = 0, cnt = 0;
@@ -329,36 +376,43 @@ function evalStrokeOrder(usrPolys, tplPolys) {
     if (u.length < 2 || t.length < 2) continue;
     const us = u[0], ue = u[u.length - 1];
     const ts = t[0], te = t[t.length - 1];
-    // 始点距離：0.30（マスの約1/3）以上ズレたら 0 点
+    // 始点距離：0.22（マスの 1/4 強）以上ズレたら 0 点
     const ds = Math.hypot(us.x - ts.x, us.y - ts.y);
-    const posScore = Math.max(0, 1 - ds / 0.30);
-    // 向きベクトルの cos 類似度を [0..1] にマップ
+    const posScore = Math.max(0, 1 - ds / 0.22);
+    // 向きベクトルの cos 類似度を [0..1] にマップ（逆向きで 0）
     const uvx = ue.x - us.x, uvy = ue.y - us.y;
     const tvx = te.x - ts.x, tvy = te.y - ts.y;
     const ul = Math.hypot(uvx, uvy), tl = Math.hypot(tvx, tvy);
     let dirScore = 0.5;
     if (ul > 0.01 && tl > 0.01) {
       const cos = (uvx * tvx + uvy * tvy) / (ul * tl);
-      dirScore = Math.max(0, (cos + 0.2) / 1.2);
+      dirScore = Math.max(0, cos);
     }
-    sum += 0.55 * posScore + 0.45 * dirScore;
+    // 位置と向きを乗算で結合（位置が大きく外れた画は向きが合っていても部分点止まり）
+    const per = dirScore * (0.25 + 0.75 * posScore);
+    sum += per;
     cnt++;
   }
   return cnt === 0 ? 0 : sum / cnt;
 }
 
 // 観点②：部屋の使い方（0..1）
+// 線長で重み付けした 4部屋の分布を、お手本とユーザーで比較する（TVD ベース）。
+// 「ちょこっと部屋を横切る」では満点にならず、各部屋にどれだけ書いている
+// かで採点される。
 function evalRooms(usrPolys, tplPolys) {
-  const t = unionRooms(tplPolys);
-  const u = unionRooms(usrPolys);
-  if (t.size === 0 && u.size === 0) return 1;
-  let inter = 0;
-  for (const q of u) if (t.has(q)) inter++;
-  const precision = u.size === 0 ? 0 : inter / u.size;
-  const recall    = t.size === 0 ? 1 : inter / t.size;
-  if (precision + recall === 0) return 0;
-  // recall（お手本の部屋を埋められたか）を重視
-  return (precision + 2 * recall) / 3;
+  const dt = roomDensity(tplPolys);
+  const du = roomDensity(usrPolys);
+  const ts = dt.reduce((a, b) => a + b, 0);
+  const us = du.reduce((a, b) => a + b, 0);
+  if (ts === 0 && us === 0) return 1;
+  if (ts === 0 || us === 0) return 0;
+  // 全変動距離（TVD）：0=完全一致、1=完全に違う分布
+  let tvd = 0;
+  for (let i = 0; i < 4; i++) tvd += Math.abs(dt[i] - du[i]);
+  tvd = tvd / 2;
+  // 厳しめに：TVD=0.3 で半分くらいの点になるよう指数で曲げる
+  return Math.max(0, Math.pow(1 - tvd, 1.4));
 }
 
 // 観点③：線の交差（0..1）
@@ -379,6 +433,7 @@ function evalCrossings(usrPolys, tplPolys) {
 }
 
 // 観点④：おおきさ・いち（0..1）
+// サイズと中心ズレを「相乗平均」で結合する（どちらかが破綻したら全体が落ちる）。
 function evalBalance(usrPolys) {
   let xmin = 1, xmax = 0, ymin = 1, ymax = 0, n = 0;
   for (const poly of usrPolys) for (const p of poly) {
@@ -390,15 +445,18 @@ function evalBalance(usrPolys) {
   }
   if (n === 0) return 0;
   const w = xmax - xmin, h = ymax - ymin;
-  // 一辺 0.55〜0.95 が満点。小さすぎ・はみ出しは減点
-  const sizeOk = (v) => v >= 0.55 && v <= 0.95 ? 1
-                       : v < 0.55 ? Math.max(0, v / 0.55)
-                       : Math.max(0, 1 - (v - 0.95) / 0.05);
+  // 一辺 0.65〜0.95 が満点。小さすぎは二次関数で大きく減点
+  const sizeOk = (v) => {
+    if (v >= 0.65 && v <= 0.95) return 1;
+    if (v < 0.65) { const r = v / 0.65; return Math.max(0, r * r); }
+    return Math.max(0, 1 - (v - 0.95) / 0.05);
+  };
   const sizeScore = (sizeOk(w) + sizeOk(h)) / 2;
   const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
   const cd = Math.hypot(cx - 0.5, cy - 0.5);
-  const centerScore = Math.max(0, 1 - cd / 0.25);
-  return 0.6 * sizeScore + 0.4 * centerScore;
+  // 中心からのズレ 0.18 以上で 0 点
+  const centerScore = Math.max(0, 1 - cd / 0.18);
+  return Math.sqrt(sizeScore * centerScore);
 }
 
 function adviceFor(key, raw) {
@@ -406,6 +464,7 @@ function adviceFor(key, raw) {
   if (good) return 'ばっちり！';
   switch (key) {
     case 'order':     return ok ? 'もうすこし じゅんばんを たしかめてね' : 'かきじゅんを みなおして もう いっかい！';
+    case 'startdir':  return ok ? 'はじめの ばしょと むきを みなおそう' : 'はじめの ばしょと えんぴつの むきに きをつけてね';
     case 'rooms':     return ok ? 'マスを もうちょっと ひろく つかおう' : 'すみずみまで つかえる ように しよう';
     case 'crossings': return ok ? 'せんの かさなる ところを ていねいに' : 'せんを ちゃんと かさねて かこう';
     case 'balance':   return ok ? 'まんなかに かくと きれいだよ' : 'マスの まんなかに おおきく かこう';
@@ -421,7 +480,8 @@ function scoreHandwriting(userStrokes, templatePaths) {
   const tplPolys = templatePaths.map(d => sampleSvgPath(d, 24));
   const usrPolys = userStrokes.map(s => simplifyPoints(s.points || []));
   const items = [
-    { key: 'order',     label: 'かきじゅん',         max: 30, raw: evalStrokeOrder(usrPolys, tplPolys) },
+    { key: 'order',     label: 'かきじゅん',         max: 15, raw: evalStrokeSequence(usrPolys, tplPolys) },
+    { key: 'startdir',  label: 'はじめと むき',     max: 15, raw: evalStrokeStartAndDir(usrPolys, tplPolys) },
     { key: 'rooms',     label: 'マスの つかいかた', max: 30, raw: evalRooms(usrPolys, tplPolys) },
     { key: 'crossings', label: 'せんの こうさ',     max: 20, raw: evalCrossings(usrPolys, tplPolys) },
     { key: 'balance',   label: 'おおきさ・いち',     max: 20, raw: evalBalance(usrPolys) },
@@ -791,6 +851,9 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   // 自力モードでユーザーが書いた画ごとの点列 [{points:[{x,y in 0..1}]}, ...]
   const userStrokesRef   = useRef([]);
   const currentPointsRef = useRef([]);
+  // なぞり書きモード：失敗した画を取り消すために、画の書き始め直前の
+  // writeRef キャンバスをスナップショットしておく
+  const traceSnapshotRef = useRef(null);
 
   // ステージから派生するモード
   const stage = stageObj?.stage ?? 0;
@@ -814,7 +877,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     setMascotMsg(char ? stageMascotMessage(char, initialStage, stageObj) : '');
     setMascotMood(initialStage >= 4 ? 'wow' : 'cheer');
     clearAll();
-    if (paths) requestAnimationFrame(() => { resize(); redrawGuide(); });
+    if (char) requestAnimationFrame(() => { resize(); redrawGuide(); });
     if (char && voiceOn) setTimeout(() => speakText(char, voiceOn), 200);
     // eslint-disable-next-line
   }, [char, paths]);
@@ -863,6 +926,14 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     return () => window.removeEventListener('resize', onR);
   }, []);
 
+  // Web フォント（Klee One）読み込み後にガイドを再描画
+  useEffect(() => {
+    if (!document.fonts || !document.fonts.ready) return;
+    document.fonts.ready.then(() => {
+      if (stateRef.current.char) redrawGuide();
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => { redrawInk(); /* eslint-disable-line */ }, [currentStroke, paths]);
   // ステージが変わるとガイドの表示も切り替わる
   useEffect(() => { redrawGuide(); /* eslint-disable-line */ }, [stage]);
@@ -894,6 +965,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     });
     userStrokesRef.current = [];
     currentPointsRef.current = [];
+    traceSnapshotRef.current = null;
   }
   function resize() {
     const c = writeRef.current; if (!c) return;
@@ -907,31 +979,31 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     });
   }
   function redrawGuide() {
-    const c = guideRef.current; const p = stateRef.current.paths;
-    if (!c || !p) return;
+    const c = guideRef.current; if (!c) return;
     const ctx = c.getContext('2d'); const s = c.width;
-    ctx.clearRect(0,0,s,s);
+    ctx.clearRect(0, 0, s, s);
     // 自力モード（ステージ2以上）ではガイドを描かない
     if (stateRef.current.stage >= 2) return;
-    ctx.save(); ctx.scale(s/109, s/109);
-    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    p.forEach(d => ctx.stroke(new Path2D(d)));
+    const ch = stateRef.current.char;
+    if (!ch) return;
+    // 教科書体（OS バンドル）→ Klee One（Web フォント）→ 丸ゴ の順でフォールバック。
+    // 画ごとのストロークデータは KanjiVG が引き続き持つので、書き順アニメ・
+    // 始点マーカー・採点ロジックは変わらない。
+    ctx.save();
+    ctx.fillStyle = '#e2e8f0'; // slate-200
+    const fontSize = Math.round(s * 0.86);
+    ctx.font = `${fontSize}px 'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText(ch, s / 2, s / 2);
     ctx.restore();
   }
+  // 旧 inkRef（KanjiVG ストロークで完了画を表示）はガイドと字形が
+  // 揃わなくなったため使わない。クリアのみ。
   function redrawInk() {
-    const c = inkRef.current; const p = stateRef.current.paths;
-    if (!c || !p) return;
-    const ctx = c.getContext('2d'); const s = c.width;
-    ctx.clearRect(0,0,s,s);
-    // 自力モードでは「お手本」をなぞった完成インクを描かない
-    // （ユーザーが書いた線がそのまま writeRef に残る）
-    if (stateRef.current.stage >= 2) return;
-    const cs = stateRef.current.currentStroke;
-    if (cs === 0) return;
-    ctx.save(); ctx.scale(s/109, s/109);
-    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (let i = 0; i < cs; i++) ctx.stroke(new Path2D(p[i]));
-    ctx.restore();
+    const c = inkRef.current; if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
   }
 
   /* --- 座標変換ヘルパー --- */
@@ -961,6 +1033,11 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     // 自力モード：この画の点列を新たに記録しはじめる
     if (st >= 2) currentPointsRef.current = [{ x: pt.nx, y: pt.ny }];
     const c = writeRef.current;
+    // なぞり書き：失敗時にこの画だけ取り消せるよう、書き始め前を保存
+    if (st < 2) {
+      try { traceSnapshotRef.current = c.getContext('2d').getImageData(0, 0, c.width, c.height); }
+      catch (e) { traceSnapshotRef.current = null; }
+    }
     const ctx = c.getContext('2d');
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.lineWidth = c.width * 0.07;
@@ -1001,13 +1078,12 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     const nx = lastRef.current.x / c.width;
     const ny = lastRef.current.y / c.height;
     const dist = Math.hypot(nx - target.x, ny - target.y);
-    c.getContext('2d').clearRect(0, 0, c.width, c.height);
     if (dist < TOLERANCE) {
+      // 成功：ユーザーの実筆跡は writeRef にそのまま残し、進捗のしるしにする
+      traceSnapshotRef.current = null;
       const next = cs + 1;
       setCurrentStroke(next);
       if (next >= ps.length) {
-        // 1文字書けた：くどい演出はやめ、軽い音とコメントのみ。
-        // セクション（ステージ）が変わるときは別途まとめてお祝いする。
         playPingPong();
         setMascotMsg('できたよ！'); setMascotMood('happy');
         onRoundComplete(ch, !hm);
@@ -1019,9 +1095,14 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       } else {
         playPingPong();
         setMascotMsg('いい ちょうし！'); setMascotMood('happy');
-        setMistakes(0); // この画の成功でミスカウントをリセット
+        setMistakes(0);
       }
     } else {
+      // 失敗：この画ぶんのインクだけ取り消す（既存の成功画は残す）
+      const snap = traceSnapshotRef.current;
+      if (snap) c.getContext('2d').putImageData(snap, 0, 0);
+      else c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      traceSnapshotRef.current = null;
       onMistake();
     }
   }
@@ -2033,7 +2114,7 @@ function App() {
   const resetAll = () => { localStorage.clear(); window.location.reload(); };
 
   return (
-    <div className="h-screen flex flex-col bg-amber-50/40 overflow-hidden" style={{ fontFamily: "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif", fontWeight: 700 }}>
+    <div className="h-screen flex flex-col bg-amber-50/40 overflow-hidden" style={{ fontFamily: "'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif", fontWeight: 600 }}>
       <canvas id="confettiCanvas" className="fixed inset-0 pointer-events-none z-[400]"/>
       <Header view={view} setView={setView} mastered={mastered}
         onReset={() => setResetOpen(true)}
