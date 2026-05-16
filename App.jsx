@@ -144,9 +144,10 @@ function loadInitialProgress() {
    2. 音と演出
    ────────────────────────────────────────────────────────────── */
 let audioCtx = null;
+let voiceEnabled = true; // 音声OFFのときは効果音もすべて止める
 function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 function playTone(freq, type, duration, vol = 0.1) {
-  if (!audioCtx) return;
+  if (!voiceEnabled || !audioCtx) return;
   try {
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
@@ -172,7 +173,7 @@ function getJaVoice() {
   return cachedJaVoice;
 }
 function speakText(text, enabled = true) {
-  if (!enabled || !text || !window.speechSynthesis) return;
+  if (!enabled || !voiceEnabled || !text || !window.speechSynthesis) return;
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -230,6 +231,46 @@ async function fetchKanjiVG(char) {
     kanjiPathsCache[char] = paths; return paths;
   } catch (e) { return null; }
 }
+// 自力書きの採点：お手本パスとユーザーの描画を重ね合わせて 0〜100 を返す
+function scoreDrawing(userCanvas, templatePaths) {
+  if (!userCanvas || !templatePaths || templatePaths.length === 0) return 0;
+  const size = userCanvas.width;
+  if (!size) return 0;
+  // お手本を「太め」に描いたマスクを作る（小学生にやさしい許容範囲）
+  const off = document.createElement('canvas');
+  off.width = size; off.height = size;
+  const octx = off.getContext('2d');
+  octx.save();
+  octx.scale(size/109, size/109);
+  octx.strokeStyle = '#000';
+  octx.lineWidth = 16;
+  octx.lineCap = 'round';
+  octx.lineJoin = 'round';
+  templatePaths.forEach(d => octx.stroke(new Path2D(d)));
+  octx.restore();
+  let tplData, usrData;
+  try {
+    tplData = octx.getImageData(0,0,size,size).data;
+    usrData = userCanvas.getContext('2d').getImageData(0,0,size,size).data;
+  } catch (e) { return 0; }
+  let tplPx = 0, usrPx = 0, hit = 0;
+  for (let i = 3; i < tplData.length; i += 4) {
+    const t = tplData[i] > 30;
+    const u = usrData[i] > 30;
+    if (t) tplPx++;
+    if (u) {
+      usrPx++;
+      if (t) hit++;
+    }
+  }
+  if (tplPx === 0 || usrPx === 0) return 0;
+  const recall    = hit / tplPx;
+  const precision = hit / usrPx;
+  // F1スコアっぽい指標
+  const f = 2 * recall * precision / Math.max(0.0001, recall + precision);
+  return Math.max(0, Math.min(100, Math.round(f * 100)));
+}
+
 function getStartEndPoints(pathStr) {
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
@@ -573,6 +614,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   const [mascotMood, setMascotMood] = useState('cheer');
   const prevStageRef = useRef(stageObj?.stage ?? 0);
   const [stageUp, setStageUp] = useState(null); // { from, to }
+  const [scoreInfo, setScoreInfo] = useState(null); // { score, passed }
   const drawingRef = useRef(false);
   const lastRef    = useRef({ x: 0, y: 0 });
 
@@ -603,23 +645,22 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     // eslint-disable-next-line
   }, [char, paths]);
 
-  // ステージアップ検知
+  // ステージアップ検知（セクション終わりにだけ「よくできました」を演出）
   useEffect(() => {
     const prev = prevStageRef.current;
     if (stage > prev) {
-      // ステージ1（書き順アニメをみた直後）はポップアップを出さない
-      // ── なぞり書き／自力書きを完了したときだけ祝う
       if (stage >= 2) {
         setStageUp({ from: prev, to: stage });
+        playFanfare();
+        burstConfetti();
+        if (voiceOn) setTimeout(() => speakText('よくできました', voiceOn), 200);
       }
       if (stage === 3) {
         setMascotMsg('もうすこし！ ことばを 1こ あつめて 💮 にしよう！');
         setMascotMood('wow');
-        playFanfare();
       } else if (stage === 2) {
         setMascotMsg('なぞりばっちり！ こんどは ガイドなしで かいてみよう！');
         setMascotMood('wow');
-        playPingPong();
       } else if (stage === 4) {
         setMascotMsg('💮 かんぺき！');
         setMascotMood('wow');
@@ -696,6 +737,9 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     if (!c || !p) return;
     const ctx = c.getContext('2d'); const s = c.width;
     ctx.clearRect(0,0,s,s);
+    // 自力モードでは「お手本」をなぞった完成インクを描かない
+    // （ユーザーが書いた線がそのまま writeRef に残る）
+    if (stateRef.current.stage >= 2) return;
     const cs = stateRef.current.currentStroke;
     if (cs === 0) return;
     ctx.save(); ctx.scale(s/109, s/109);
@@ -715,21 +759,24 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
 
   /* --- 描画ロジック（マウス/タッチ共用） --- */
   function doStart(clientX, clientY) {
-    const { paths: ps, currentStroke: cs, isCleared: ic } = stateRef.current;
+    const { paths: ps, currentStroke: cs, isCleared: ic, stage: st } = stateRef.current;
     if (!ps || ps.length === 0 || ic) return;
     initAudio();
-    if (cs >= ps.length) return;
     const pt = toCanvas(clientX, clientY); if (!pt) return;
-    const target = getStartEndPoints(ps[cs]).s;
-    const dist = Math.hypot(pt.nx - target.x, pt.ny - target.y);
-    if (dist > TOLERANCE) { onMistake(); return; }
+    if (st < 2) {
+      // なぞり書き：かきじゅんを厳しくチェック
+      if (cs >= ps.length) return;
+      const target = getStartEndPoints(ps[cs]).s;
+      const dist = Math.hypot(pt.nx - target.x, pt.ny - target.y);
+      if (dist > TOLERANCE) { onMistake(); return; }
+    }
     drawingRef.current = true;
     lastRef.current = { x: pt.cx, y: pt.cy };
     const c = writeRef.current;
     const ctx = c.getContext('2d');
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.lineWidth = c.width * 0.07;
-    ctx.strokeStyle = 'rgba(14,165,233,0.75)';
+    ctx.strokeStyle = st >= 2 ? '#1e293b' : 'rgba(14,165,233,0.75)';
     ctx.beginPath(); ctx.moveTo(pt.cx, pt.cy); ctx.stroke();
   }
   function doMove(clientX, clientY) {
@@ -745,8 +792,13 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   function doEnd() {
     if (!drawingRef.current) return;
     drawingRef.current = false;
-    const { paths: ps, currentStroke: cs, char: ch, hasMistaken: hm } = stateRef.current;
+    const { paths: ps, currentStroke: cs, char: ch, hasMistaken: hm, stage: st } = stateRef.current;
     if (!ps || ps.length === 0) return;
+    if (st >= 2) {
+      // 自力モード：採点しないでインクをそのまま残す（「できた」ボタンで採点）
+      setCurrentStroke(s => s + 1);
+      return;
+    }
     const target = getStartEndPoints(ps[cs]).e;
     const c = writeRef.current;
     const nx = lastRef.current.x / c.width;
@@ -757,16 +809,16 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       const next = cs + 1;
       setCurrentStroke(next);
       if (next >= ps.length) {
-        setIsCleared(true); playFanfare(); burstConfetti();
-        setMascotMsg('💮 よくできました！'); setMascotMood('wow');
-        if (voiceOn) setTimeout(() => speakText('よくできました', voiceOn), 200);
+        // 1文字書けた：くどい演出はやめ、軽い音とコメントのみ。
+        // セクション（ステージ）が変わるときは別途まとめてお祝いする。
+        playPingPong();
+        setMascotMsg('できたよ！'); setMascotMood('happy');
         onRoundComplete(ch, !hm);
-        // 同じ文字でくり返し練習できるよう、少し待ってからキャンバスをリセット
         setTimeout(() => {
           setCurrentStroke(0); setIsCleared(false);
           setMistakes(0); setHasMistaken(false);
           clearAll(); redrawGuide();
-        }, 1500);
+        }, 700);
       } else {
         playPingPong();
         setMascotMsg('いい ちょうし！'); setMascotMood('happy');
@@ -804,12 +856,38 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     setMascotMsg('もう いっかい がんばろう！'); setMascotMood('cheer');
   }
 
+  // 自力モードの採点：「できた」ボタンで呼ばれる
+  function submitFreeWrite() {
+    const { paths: ps, char: ch, stage: st } = stateRef.current;
+    if (st < 2 || !ps || ps.length === 0 || !writeRef.current) return;
+    if (currentStroke === 0) {
+      setMascotMsg('まだ なにも かいてないよ！'); setMascotMood('sad');
+      return;
+    }
+    const score = scoreDrawing(writeRef.current, ps);
+    const passed = score >= 60;
+    setScoreInfo({ score, passed });
+    if (passed) playFanfare(); else playPingPong();
+    if (voiceOn) {
+      setTimeout(() => speakText(`${score}てん`, voiceOn), 150);
+    }
+    onRoundComplete(ch, passed);
+    // 少し見せたあと、つぎの挑戦のためにキャンバスをクリア
+    setTimeout(() => {
+      setScoreInfo(null);
+      setCurrentStroke(0); setMistakes(0); setHasMistaken(false);
+      clearAll();
+    }, 2400);
+  }
+
   /* --- 始点ヒント（赤い点滅マーカー） --- */
   const startHint = useMemo(() => {
     if (!paths || paths.length === 0 || currentStroke >= paths.length || isCleared) return null;
+    // 自力モードでは始点ヒントを出さない（どこから書いてもよい）
+    if (stage >= 2) return null;
     const s = getStartEndPoints(paths[currentStroke]).s;
     return { x: s.x * 100, y: s.y * 100 };
-  }, [paths, currentStroke, isCleared]);
+  }, [paths, currentStroke, isCleared, stage]);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-100 p-2 md:p-4 flex flex-col h-full min-h-0">
@@ -865,6 +943,14 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
         </div>
       </div>
 
+      {/* 自力モード：「できた」採点ボタン */}
+      {char && stage >= 2 && (
+        <button onClick={submitFreeWrite} disabled={!!scoreInfo}
+          className="mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-violet-400 text-white font-black text-sm md:text-base shadow border-b-4 border-violet-600 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-60">
+          ✨ できた！ さいてんする
+        </button>
+      )}
+
       {/* ステージ3 → ことばで💮 への大きなCTA */}
       {char && stage === 3 && (
         <button onClick={onGoToWords}
@@ -893,6 +979,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
           onClose={() => { setShowAnime(false); onAnimeViewed && onAnimeViewed(char); }}/>
       )}
       {isCleared && <ExcellentPopup/>}
+      {scoreInfo && <ScorePopup score={scoreInfo.score} passed={scoreInfo.passed}/>}
       {stageUp && <StageUpPopup info={stageUp} onClose={() => setStageUp(null)} onGoToWords={onGoToWords}/>}
     </div>
   );
@@ -1086,6 +1173,39 @@ function ExcellentPopup() {
     }`}>
       <div className="bg-white/95 backdrop-blur px-6 md:px-10 py-4 md:py-6 rounded-3xl shadow-2xl border-4 border-emerald-400 -rotate-3">
         <span className="text-3xl md:text-6xl font-black text-emerald-500 tracking-widest">💮 よくできました</span>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   15.3. <ScorePopup> ── 自力書きの採点結果
+   ────────────────────────────────────────────────────────────── */
+function ScorePopup({ score, passed }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    setShow(true);
+    const t = setTimeout(() => setShow(false), 2200);
+    return () => clearTimeout(t);
+  }, []);
+  const stars = score >= 90 ? '⭐⭐⭐' : score >= 70 ? '⭐⭐' : score >= 50 ? '⭐' : '✏️';
+  const comment = score >= 90 ? 'すばらしい！'
+                : score >= 70 ? 'じょうず！'
+                : score >= 50 ? 'いい かんじ！'
+                : 'もう いっかい！';
+  const color = passed
+    ? 'from-amber-100 via-yellow-50 to-amber-100 border-amber-400 text-amber-700'
+    : 'from-sky-100 via-slate-50 to-sky-100 border-sky-400 text-sky-700';
+  return (
+    <div className={`fixed inset-0 z-[170] pointer-events-none flex items-center justify-center transition-all duration-400 ${
+      show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+    }`}>
+      <div className={`bg-gradient-to-br ${color} px-6 md:px-10 py-4 md:py-6 rounded-3xl shadow-2xl border-4 text-center -rotate-2`}>
+        <div className="text-lg md:text-2xl font-black opacity-80">{stars} {comment}</div>
+        <div className="mt-1 flex items-baseline justify-center gap-1">
+          <span className="text-5xl md:text-7xl font-black tracking-tight">{score}</span>
+          <span className="text-xl md:text-2xl font-black opacity-80">/100てん</span>
+        </div>
       </div>
     </div>
   );
@@ -1558,6 +1678,14 @@ function App() {
       getJaVoice();
     }
   }, []);
+
+  // 音声OFFのときは効果音もすべてミュート
+  useEffect(() => {
+    voiceEnabled = voiceOn;
+    if (!voiceOn && window.speechSynthesis) {
+      try { speechSynthesis.cancel(); } catch (e) {}
+    }
+  }, [voiceOn]);
 
   // バッジ達成監視
   useAchievements({ mastered, words, streak, earned, setEarned,
