@@ -370,7 +370,7 @@ function StreakBadge({ streak }) {
    ────────────────────────────────────────────────────────────── */
 function Header({ view, setView, mastered, onReset, onOpenBadges, streak, voiceOn, setVoiceOn, earnedCount }) {
   return (
-    <nav className="bg-white border-b-4 border-amber-500 px-4 md:px-6 py-2.5 flex justify-between items-center shadow-sm z-10 sticky top-0 gap-2">
+    <nav className="shrink-0 bg-white border-b-4 border-amber-500 px-3 md:px-6 py-1.5 md:py-2.5 flex justify-between items-center shadow-sm z-10 gap-2">
       {/* 左：ロゴ + アプリ名 */}
       <div className="flex items-center gap-2 md:gap-3 shrink-0 min-w-0">
         <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-amber-400 text-white flex items-center justify-center shadow-md text-xl shrink-0">🐤</div>
@@ -422,7 +422,7 @@ function Header({ view, setView, mastered, onReset, onOpenBadges, streak, voiceO
    ────────────────────────────────────────────────────────────── */
 function Footer() {
   return (
-    <footer className="w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold shadow-sm">
+    <footer className="shrink-0 w-full bg-white border-t border-slate-200 py-1 text-center text-[10px] md:text-xs text-slate-500 font-bold">
       ©2026 ひらがな・カタカナかきかたマスター ・
       <a href="https://note.com/cute_borage86" target="_blank" rel="noopener noreferrer"
          className="text-amber-600 hover:text-amber-700 hover:underline ml-1">GIGA山</a>
@@ -457,19 +457,19 @@ function DailyChallenge({ char, kanaMode, progress, onPick }) {
   const isMastered = stage >= 4;
   return (
     <button onClick={() => onPick(char)}
-      className="w-full bg-gradient-to-r from-amber-100 via-rose-50 to-amber-100 border-2 border-amber-300 rounded-2xl p-3 flex items-center gap-3 shadow-sm hover:shadow-md transition-all active:scale-[0.99]">
-      <div className="flex items-center justify-center bg-white rounded-xl w-14 h-14 md:w-16 md:h-16 border-2 border-amber-400 shadow-inner shrink-0">
-        <span className="text-3xl md:text-4xl font-black text-amber-700">{char}</span>
+      className="w-full bg-gradient-to-r from-amber-100 via-rose-50 to-amber-100 border-2 border-amber-300 rounded-2xl p-2 md:p-3 flex items-center gap-2 md:gap-3 shadow-sm hover:shadow-md transition-all active:scale-[0.99]">
+      <div className="flex items-center justify-center bg-white rounded-xl w-10 h-10 md:w-16 md:h-16 border-2 border-amber-400 shadow-inner shrink-0">
+        <span className="text-2xl md:text-4xl font-black text-amber-700">{char}</span>
       </div>
       <div className="flex-1 text-left min-w-0">
         <div className="text-[10px] md:text-xs font-black text-amber-600 flex items-center gap-1">
           <IconCalendar size={12}/> きょうの もじ ・ {kanaMode === 'katakana' ? 'カタカナ' : 'ひらがな'}
         </div>
-        <div className="text-sm md:text-base font-black text-slate-700 truncate">
+        <div className="text-xs md:text-base font-black text-slate-700 truncate">
           {isMastered ? '💮 もう おぼえたよ！ もう いっかい かいてみよう' : 'チャレンジ してみよう！'}
         </div>
       </div>
-      <div className="text-2xl md:text-3xl shrink-0">✨</div>
+      <div className="text-xl md:text-3xl shrink-0">✨</div>
     </button>
   );
 }
@@ -480,20 +480,20 @@ function DailyChallenge({ char, kanaMode, progress, onPick }) {
 function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onSequence, onRandom }) {
   const table = kanaMode === 'katakana' ? KATA_TABLE : HIRA_TABLE;
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-amber-100 p-3 md:p-4 flex flex-col h-full">
-      <div className="flex gap-2 mb-3 shrink-0">
+    <div className="bg-white rounded-2xl shadow-sm border-2 border-amber-100 p-2 md:p-4 flex flex-col h-full min-h-0">
+      <div className="flex gap-1.5 md:gap-2 mb-2 md:mb-3 shrink-0">
         <button onClick={() => setKanaMode('hiragana')}
-          className={`flex-1 py-2 rounded-xl font-black text-base md:text-lg transition-all active:scale-95 border-2 ${
+          className={`flex-1 py-1.5 md:py-2 rounded-xl font-black text-sm md:text-lg transition-all active:scale-95 border-2 ${
             kanaMode === 'hiragana' ? 'bg-amber-400 text-white border-amber-500 shadow' : 'bg-amber-50 text-amber-600 border-amber-100'
           }`}>ひらがな</button>
         <button onClick={() => setKanaMode('katakana')}
-          className={`flex-1 py-2 rounded-xl font-black text-base md:text-lg transition-all active:scale-95 border-2 ${
+          className={`flex-1 py-1.5 md:py-2 rounded-xl font-black text-sm md:text-lg transition-all active:scale-95 border-2 ${
             kanaMode === 'katakana' ? 'bg-amber-400 text-white border-amber-500 shadow' : 'bg-amber-50 text-amber-600 border-amber-100'
           }`}>カタカナ</button>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-amber-50/40 rounded-xl p-2 md:p-3 border border-amber-100">
-        <div className="grid grid-cols-5 gap-1.5 md:gap-2 max-w-sm mx-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-amber-50/40 rounded-xl p-1.5 md:p-3 border border-amber-100">
+        <div className="grid grid-cols-5 gap-1 md:gap-2 max-w-sm mx-auto">
           {table.map((char, i) => {
             if (!char) return <div key={i} className="aspect-square"/>;
             const stage = getStage(progress, char);
@@ -508,7 +508,7 @@ function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onS
             const info = STAGE_INFO[stage];
             return (
               <button key={i} onClick={() => onSelect(char)}
-                className={`aspect-square rounded-lg font-black text-2xl md:text-3xl border-2 shadow-sm relative transition-all active:scale-95 ${cls}`}>
+                className={`aspect-square rounded-lg font-black text-lg md:text-3xl border-2 shadow-sm relative transition-all active:scale-95 ${cls}`}>
                 {char}
                 {!isCurrent && stage > 0 && (
                   <span className="absolute -top-1 -right-1 text-xs leading-none">{info.icon}</span>
@@ -525,14 +525,14 @@ function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onS
         </div>
       </div>
 
-      <div className="flex gap-2 mt-3 shrink-0">
+      <div className="flex gap-1.5 md:gap-2 mt-2 md:mt-3 shrink-0">
         <button onClick={onSequence}
-          className="flex-1 py-2.5 rounded-xl font-black text-sm md:text-base bg-emerald-400 text-white shadow border-b-4 border-emerald-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1.5">
-          <IconCheck size={16}/> あいうえお<span className="hidden md:inline">じゅん</span>
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-emerald-400 text-white shadow border-b-4 border-emerald-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1 md:gap-1.5">
+          <IconCheck size={14}/> あいうえお<span className="hidden md:inline">じゅん</span>
         </button>
         <button onClick={onRandom}
-          className="flex-1 py-2.5 rounded-xl font-black text-sm md:text-base bg-violet-400 text-white shadow border-b-4 border-violet-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1.5">
-          <IconSparkle size={16}/> ばらばら
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-violet-400 text-white shadow border-b-4 border-violet-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1 md:gap-1.5">
+          <IconSparkle size={14}/> ばらばら
         </button>
       </div>
     </div>
@@ -607,7 +607,11 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   useEffect(() => {
     const prev = prevStageRef.current;
     if (stage > prev) {
-      setStageUp({ from: prev, to: stage });
+      // ステージ1（書き順アニメをみた直後）はポップアップを出さない
+      // ── なぞり書き／自力書きを完了したときだけ祝う
+      if (stage >= 2) {
+        setStageUp({ from: prev, to: stage });
+      }
       if (stage === 3) {
         setMascotMsg('もうすこし！ ことばを 1こ あつめて 💮 にしよう！');
         setMascotMood('wow');
@@ -619,6 +623,10 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       } else if (stage === 4) {
         setMascotMsg('💮 かんぺき！');
         setMascotMood('wow');
+      } else if (stage === 1) {
+        // 書き順アニメをみたあとは、つぎになぞるよう声をかける
+        setMascotMsg(stageMascotMessage(char, 1, stageObj));
+        setMascotMood('cheer');
       }
     }
     prevStageRef.current = stage;
@@ -804,15 +812,15 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   }, [paths, currentStroke, isCleared]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-100 p-3 md:p-4 flex flex-col h-full">
-      <div className="flex justify-between items-center mb-2 shrink-0 gap-2">
-        <span className={`text-xs md:text-sm font-bold px-3 py-1 rounded-full truncate ${
+    <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-100 p-2 md:p-4 flex flex-col h-full min-h-0">
+      <div className="flex justify-between items-center mb-1 md:mb-2 shrink-0 gap-2">
+        <span className={`text-[10px] md:text-sm font-bold px-2 md:px-3 py-0.5 md:py-1 rounded-full truncate ${
           isTraceMode ? 'text-emerald-700 bg-emerald-100' : 'text-violet-700 bg-violet-100'
         }`}>
           {char ? (isTraceMode ? `「${char}」を なぞって かこう` : `「${char}」を じぶんで かこう`) : 'もじを えらんでね 👆'}
         </span>
         {char && (
-          <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full shrink-0">
+          <span className="text-[10px] md:text-xs font-bold text-amber-600 bg-amber-50 px-2 md:px-2.5 py-0.5 md:py-1 rounded-full shrink-0">
             🏆 {practiceCount[char] || 0} かい
           </span>
         )}
@@ -824,13 +832,13 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       )}
 
       {char && (
-        <div className="mb-2 shrink-0">
+        <div className="mb-1 md:mb-2 shrink-0">
           <Mascot message={mascotMsg} mood={mascotMood} size="small"/>
         </div>
       )}
 
-      <div className="flex-1 flex items-center justify-center min-h-0 relative w-full">
-        <div className="relative aspect-square h-full max-h-[420px] bg-white rounded-2xl border-4 border-orange-200 shadow-inner overflow-hidden">
+      <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 relative w-full">
+        <div className="relative aspect-square h-full max-h-full max-w-full bg-white rounded-2xl border-4 border-orange-200 shadow-inner overflow-hidden">
           <div className="absolute top-1/2 left-0 right-0 border-t-2 border-dashed border-amber-200 pointer-events-none z-[5]"/>
           <div className="absolute left-1/2 top-0 bottom-0 border-l-2 border-dashed border-amber-200 pointer-events-none z-[5]"/>
           <canvas ref={guideRef} className="absolute inset-0 w-full h-full z-[1]"/>
@@ -860,23 +868,23 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       {/* ステージ3 → ことばで💮 への大きなCTA */}
       {char && stage === 3 && (
         <button onClick={onGoToWords}
-          className="mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-300 text-amber-900 font-black text-sm md:text-base shadow border-b-4 border-amber-500 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0">
+          className="mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-300 text-amber-900 font-black text-xs md:text-base shadow border-b-4 border-amber-500 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0">
           🎀 ことばを 1こ あつめて 💮 にしよう！
         </button>
       )}
 
-      <div className="flex gap-2 mt-3 shrink-0">
+      <div className="flex gap-1.5 md:gap-2 mt-2 md:mt-3 shrink-0">
         <button onClick={restart} disabled={!char}
-          className="flex-1 py-2.5 rounded-xl font-black text-sm md:text-base bg-orange-50 text-orange-600 shadow-sm border-b-4 border-orange-200 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1.5">
-          <IconRotate size={16}/> やりなおし
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-orange-50 text-orange-600 shadow-sm border-b-4 border-orange-200 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
+          <IconRotate size={14}/> やりなおし
         </button>
         <button onClick={() => char && speakText(char, voiceOn)} disabled={!char || !voiceOn}
-          className="flex-1 py-2.5 rounded-xl font-black text-sm md:text-base bg-emerald-100 text-emerald-700 shadow-sm border-b-4 border-emerald-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1.5">
-          <IconVolume size={16}/> よんで
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-emerald-100 text-emerald-700 shadow-sm border-b-4 border-emerald-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
+          <IconVolume size={14}/> よんで
         </button>
         <button onClick={() => setShowAnime(true)} disabled={!char}
-          className="flex-1 py-2.5 rounded-xl font-black text-sm md:text-base bg-sky-100 text-sky-600 shadow-sm border-b-4 border-sky-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1.5">
-          <IconPlay size={16}/> かきじゅん
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-sky-100 text-sky-600 shadow-sm border-b-4 border-sky-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
+          <IconPlay size={14}/> かきじゅん
         </button>
       </div>
 
@@ -936,7 +944,8 @@ function StageUpPopup({ info, onClose, onGoToWords }) {
     3: { title: 'ほぼマスター！', sub: 'ことばを 1こ あつめれば 💮 かんぺき！', color: 'from-violet-200 to-violet-100 border-violet-400 text-violet-700' },
     4: { title: '💮 かんぺき！', sub: 'ほんとうに じぶんの じに なったよ！', color: 'from-amber-200 to-amber-100 border-amber-400 text-amber-700' },
   };
-  const m = msgMap[info.to] || msgMap[4];
+  const m = msgMap[info.to];
+  if (!m) return null;
   return (
     <div className={`fixed inset-0 z-[180] pointer-events-none flex items-center justify-center transition-all duration-400 ${
       show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
@@ -1500,10 +1509,12 @@ function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, o
   }, [currentChar, stageObj?.stage, playMode]);
 
   return (
-    <div className="flex-1 flex flex-col p-3 md:p-4 min-h-0 overflow-hidden gap-3">
-      <DailyChallenge char={dailyChar} kanaMode={kanaMode} progress={progress}
-        onPick={(c) => selectChar(c, 'free')}/>
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col p-2 md:p-4 min-h-0 overflow-hidden gap-2 md:gap-3">
+      <div className="shrink-0">
+        <DailyChallenge char={dailyChar} kanaMode={kanaMode} progress={progress}
+          onPick={(c) => selectChar(c, 'free')}/>
+      </div>
+      <div className="flex-1 grid grid-cols-2 gap-2 md:gap-4 min-h-0 overflow-hidden">
         <KanaTable kanaMode={kanaMode} setKanaMode={setKanaMode}
           progress={progress} currentChar={currentChar}
           onSelect={(c) => selectChar(c,'free')}
@@ -1641,7 +1652,7 @@ function App() {
   const resetAll = () => { localStorage.clear(); window.location.reload(); };
 
   return (
-    <div className="min-h-screen flex flex-col bg-amber-50/40" style={{ fontFamily: "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif", fontWeight: 700 }}>
+    <div className="h-screen flex flex-col bg-amber-50/40 overflow-hidden" style={{ fontFamily: "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif", fontWeight: 700 }}>
       <canvas id="confettiCanvas" className="fixed inset-0 pointer-events-none z-[400]"/>
       <Header view={view} setView={setView} mastered={mastered}
         onReset={() => setResetOpen(true)}
