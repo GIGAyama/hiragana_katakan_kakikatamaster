@@ -287,10 +287,24 @@ function simplifyPoints(pts) {
 function quadrantOf(p) {
   return (p.x >= 0.5 ? 1 : 0) | (p.y >= 0.5 ? 2 : 0);
 }
-function unionRooms(polys) {
-  const s = new Set();
-  for (const poly of polys) for (const p of poly) s.add(quadrantOf(p));
-  return s;
+// 線の長さで重み付けした「部屋ごとの存在割合」を返す（合計1）
+// 「点が部屋にあるか」だけでなく「どれだけ書いているか」で測るので、
+// 真ん中に小さく書いて4部屋を通過しただけ、では満点にならない。
+function roomDensity(polys) {
+  const bins = [0, 0, 0, 0];
+  let total = 0;
+  for (const poly of polys) {
+    for (let i = 1; i < poly.length; i++) {
+      const a = poly[i - 1], b = poly[i];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len === 0) continue;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      bins[quadrantOf(mid)] += len;
+      total += len;
+    }
+  }
+  if (total === 0) return bins;
+  return bins.map(v => v / total);
 }
 
 // 2線分の交差判定（端点接触は除外）
@@ -329,36 +343,43 @@ function evalStrokeOrder(usrPolys, tplPolys) {
     if (u.length < 2 || t.length < 2) continue;
     const us = u[0], ue = u[u.length - 1];
     const ts = t[0], te = t[t.length - 1];
-    // 始点距離：0.30（マスの約1/3）以上ズレたら 0 点
+    // 始点距離：0.22（マスの 1/4 強）以上ズレたら 0 点
     const ds = Math.hypot(us.x - ts.x, us.y - ts.y);
-    const posScore = Math.max(0, 1 - ds / 0.30);
-    // 向きベクトルの cos 類似度を [0..1] にマップ
+    const posScore = Math.max(0, 1 - ds / 0.22);
+    // 向きベクトルの cos 類似度を [0..1] にマップ（逆向きで 0）
     const uvx = ue.x - us.x, uvy = ue.y - us.y;
     const tvx = te.x - ts.x, tvy = te.y - ts.y;
     const ul = Math.hypot(uvx, uvy), tl = Math.hypot(tvx, tvy);
     let dirScore = 0.5;
     if (ul > 0.01 && tl > 0.01) {
       const cos = (uvx * tvx + uvy * tvy) / (ul * tl);
-      dirScore = Math.max(0, (cos + 0.2) / 1.2);
+      dirScore = Math.max(0, cos);
     }
-    sum += 0.55 * posScore + 0.45 * dirScore;
+    // 位置と向きを乗算で結合（位置が大きく外れた画は向きが合っていても部分点止まり）
+    const per = dirScore * (0.25 + 0.75 * posScore);
+    sum += per;
     cnt++;
   }
   return cnt === 0 ? 0 : sum / cnt;
 }
 
 // 観点②：部屋の使い方（0..1）
+// 線長で重み付けした 4部屋の分布を、お手本とユーザーで比較する（TVD ベース）。
+// 「ちょこっと部屋を横切る」では満点にならず、各部屋にどれだけ書いている
+// かで採点される。
 function evalRooms(usrPolys, tplPolys) {
-  const t = unionRooms(tplPolys);
-  const u = unionRooms(usrPolys);
-  if (t.size === 0 && u.size === 0) return 1;
-  let inter = 0;
-  for (const q of u) if (t.has(q)) inter++;
-  const precision = u.size === 0 ? 0 : inter / u.size;
-  const recall    = t.size === 0 ? 1 : inter / t.size;
-  if (precision + recall === 0) return 0;
-  // recall（お手本の部屋を埋められたか）を重視
-  return (precision + 2 * recall) / 3;
+  const dt = roomDensity(tplPolys);
+  const du = roomDensity(usrPolys);
+  const ts = dt.reduce((a, b) => a + b, 0);
+  const us = du.reduce((a, b) => a + b, 0);
+  if (ts === 0 && us === 0) return 1;
+  if (ts === 0 || us === 0) return 0;
+  // 全変動距離（TVD）：0=完全一致、1=完全に違う分布
+  let tvd = 0;
+  for (let i = 0; i < 4; i++) tvd += Math.abs(dt[i] - du[i]);
+  tvd = tvd / 2;
+  // 厳しめに：TVD=0.3 で半分くらいの点になるよう指数で曲げる
+  return Math.max(0, Math.pow(1 - tvd, 1.4));
 }
 
 // 観点③：線の交差（0..1）
@@ -379,6 +400,7 @@ function evalCrossings(usrPolys, tplPolys) {
 }
 
 // 観点④：おおきさ・いち（0..1）
+// サイズと中心ズレを「相乗平均」で結合する（どちらかが破綻したら全体が落ちる）。
 function evalBalance(usrPolys) {
   let xmin = 1, xmax = 0, ymin = 1, ymax = 0, n = 0;
   for (const poly of usrPolys) for (const p of poly) {
@@ -390,15 +412,18 @@ function evalBalance(usrPolys) {
   }
   if (n === 0) return 0;
   const w = xmax - xmin, h = ymax - ymin;
-  // 一辺 0.55〜0.95 が満点。小さすぎ・はみ出しは減点
-  const sizeOk = (v) => v >= 0.55 && v <= 0.95 ? 1
-                       : v < 0.55 ? Math.max(0, v / 0.55)
-                       : Math.max(0, 1 - (v - 0.95) / 0.05);
+  // 一辺 0.65〜0.95 が満点。小さすぎは二次関数で大きく減点
+  const sizeOk = (v) => {
+    if (v >= 0.65 && v <= 0.95) return 1;
+    if (v < 0.65) { const r = v / 0.65; return Math.max(0, r * r); }
+    return Math.max(0, 1 - (v - 0.95) / 0.05);
+  };
   const sizeScore = (sizeOk(w) + sizeOk(h)) / 2;
   const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
   const cd = Math.hypot(cx - 0.5, cy - 0.5);
-  const centerScore = Math.max(0, 1 - cd / 0.25);
-  return 0.6 * sizeScore + 0.4 * centerScore;
+  // 中心からのズレ 0.18 以上で 0 点
+  const centerScore = Math.max(0, 1 - cd / 0.18);
+  return Math.sqrt(sizeScore * centerScore);
 }
 
 function adviceFor(key, raw) {
