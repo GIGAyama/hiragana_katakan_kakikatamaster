@@ -333,8 +333,41 @@ function crossPairSet(polys) {
   return pairs;
 }
 
-// 観点①：かきじゅん（0..1）
-function evalStrokeOrder(usrPolys, tplPolys) {
+// 観点①-a：かきじゅん（純粋な順番のみ）（0..1）
+// ユーザーの i 番目の画の始点が、お手本の「i 番目の画の始点」に最も近いかを判定。
+// 順番が正しい限り、書き始めの位置が多少ズレても満点。
+function evalStrokeSequence(usrPolys, tplPolys) {
+  const n = Math.min(usrPolys.length, tplPolys.length);
+  if (n === 0) return 0;
+  const tplStarts = tplPolys.map(t => (t && t.length > 0) ? t[0] : null);
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < n; i++) {
+    const u = usrPolys[i];
+    const tStart = tplStarts[i];
+    if (!u || u.length === 0 || !tStart) continue;
+    const us = u[0];
+    const correctDist = Math.hypot(us.x - tStart.x, us.y - tStart.y);
+    let bestDist = Infinity;
+    for (const ts of tplStarts) {
+      if (!ts) continue;
+      const d = Math.hypot(us.x - ts.x, us.y - ts.y);
+      if (d < bestDist) bestDist = d;
+    }
+    if (correctDist <= bestDist + 1e-6) {
+      // 正しい順番（i 番目のお手本始点が最近傍）
+      sum += 1.0;
+    } else {
+      // 他の画のほうが近い：相対距離で部分点
+      sum += (bestDist + 0.02) / (correctDist + 0.02);
+    }
+    cnt++;
+  }
+  return cnt === 0 ? 0 : sum / cnt;
+}
+
+// 観点①-b：はじめと むき（0..1）
+// 画ごとの「書き始めの位置」と「向き」がお手本と合っているかを評価。
+function evalStrokeStartAndDir(usrPolys, tplPolys) {
   const n = Math.min(usrPolys.length, tplPolys.length);
   if (n === 0) return 0;
   let sum = 0, cnt = 0;
@@ -431,6 +464,7 @@ function adviceFor(key, raw) {
   if (good) return 'ばっちり！';
   switch (key) {
     case 'order':     return ok ? 'もうすこし じゅんばんを たしかめてね' : 'かきじゅんを みなおして もう いっかい！';
+    case 'startdir':  return ok ? 'はじめの ばしょと むきを みなおそう' : 'はじめの ばしょと えんぴつの むきに きをつけてね';
     case 'rooms':     return ok ? 'マスを もうちょっと ひろく つかおう' : 'すみずみまで つかえる ように しよう';
     case 'crossings': return ok ? 'せんの かさなる ところを ていねいに' : 'せんを ちゃんと かさねて かこう';
     case 'balance':   return ok ? 'まんなかに かくと きれいだよ' : 'マスの まんなかに おおきく かこう';
@@ -446,7 +480,8 @@ function scoreHandwriting(userStrokes, templatePaths) {
   const tplPolys = templatePaths.map(d => sampleSvgPath(d, 24));
   const usrPolys = userStrokes.map(s => simplifyPoints(s.points || []));
   const items = [
-    { key: 'order',     label: 'かきじゅん',         max: 30, raw: evalStrokeOrder(usrPolys, tplPolys) },
+    { key: 'order',     label: 'かきじゅん',         max: 15, raw: evalStrokeSequence(usrPolys, tplPolys) },
+    { key: 'startdir',  label: 'はじめと むき',     max: 15, raw: evalStrokeStartAndDir(usrPolys, tplPolys) },
     { key: 'rooms',     label: 'マスの つかいかた', max: 30, raw: evalRooms(usrPolys, tplPolys) },
     { key: 'crossings', label: 'せんの こうさ',     max: 20, raw: evalCrossings(usrPolys, tplPolys) },
     { key: 'balance',   label: 'おおきさ・いち',     max: 20, raw: evalBalance(usrPolys) },
@@ -2058,7 +2093,7 @@ function App() {
   const resetAll = () => { localStorage.clear(); window.location.reload(); };
 
   return (
-    <div className="h-screen flex flex-col bg-amber-50/40 overflow-hidden" style={{ fontFamily: "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif", fontWeight: 700 }}>
+    <div className="h-screen flex flex-col bg-amber-50/40 overflow-hidden" style={{ fontFamily: "'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif", fontWeight: 600 }}>
       <canvas id="confettiCanvas" className="fixed inset-0 pointer-events-none z-[400]"/>
       <Header view={view} setView={setView} mastered={mastered}
         onReset={() => setResetOpen(true)}
