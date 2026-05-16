@@ -1328,15 +1328,15 @@ function StageUpPopup({ info, onClose, onGoToWords }) {
   const m = msgMap[info.to];
   if (!m) return null;
   return (
-    <div className={`fixed inset-0 z-[180] pointer-events-none flex items-center justify-center transition-all duration-400 ${
-      show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+    <div className={`fixed inset-x-0 top-0 z-[180] pointer-events-none flex justify-center transition-all duration-400 pt-3 md:pt-5 ${
+      show ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
     }`}>
-      <div className={`bg-gradient-to-br ${m.color} px-5 md:px-8 py-4 md:py-6 rounded-3xl shadow-2xl border-4 max-w-sm mx-3 text-center pointer-events-auto -rotate-2`}>
+      <div className={`bg-gradient-to-br ${m.color} px-5 md:px-8 py-3 md:py-4 rounded-3xl shadow-2xl border-4 max-w-sm mx-3 text-center pointer-events-auto -rotate-2`}>
         <div className="text-xl md:text-3xl font-black">{m.title}</div>
         <div className="text-xs md:text-base font-black mt-1 opacity-90">{m.sub}</div>
         {info.to === 3 && onGoToWords && (
           <button onClick={onGoToWords}
-            className="mt-3 px-4 py-2 rounded-xl bg-white text-violet-700 font-black text-sm shadow border-b-4 border-violet-400 active:translate-y-0.5 active:border-b-2">
+            className="mt-2 px-4 py-1.5 rounded-xl bg-white text-violet-700 font-black text-sm shadow border-b-4 border-violet-400 active:translate-y-0.5 active:border-b-2">
             ことばずかんへ →
           </button>
         )}
