@@ -39,6 +39,111 @@
     ::-webkit-scrollbar-thumb { background: #fcd34d80; border-radius: 4px; }
     /* range スライダー */
     input[type=range] { height: 8px; }
+
+    /* ===== 楽しい学習用アニメーション ===== */
+    @keyframes kkm-wiggle {
+      0%, 100% { transform: rotate(-3deg); }
+      50% { transform: rotate(3deg); }
+    }
+    @keyframes kkm-float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    @keyframes kkm-float-slow {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      33% { transform: translateY(-8px) rotate(-3deg); }
+      66% { transform: translateY(4px) rotate(3deg); }
+    }
+    @keyframes kkm-sparkle {
+      0%, 100% { opacity: 0.3; transform: scale(0.9) rotate(0deg); }
+      50% { opacity: 1; transform: scale(1.1) rotate(180deg); }
+    }
+    @keyframes kkm-pop-in {
+      0% { transform: scale(0.5); opacity: 0; }
+      60% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes kkm-rainbow-shift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    @keyframes kkm-shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    @keyframes kkm-pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(251,191,36,0.45); }
+      70% { box-shadow: 0 0 0 12px rgba(251,191,36,0); }
+      100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+    }
+
+    .kkm-wiggle { animation: kkm-wiggle 2.4s ease-in-out infinite; transform-origin: 50% 80%; }
+    .kkm-float { animation: kkm-float 3.2s ease-in-out infinite; }
+    .kkm-float-slow { animation: kkm-float-slow 6s ease-in-out infinite; }
+    .kkm-sparkle { animation: kkm-sparkle 2.4s ease-in-out infinite; }
+    .kkm-pop-in { animation: kkm-pop-in .45s cubic-bezier(.34,1.56,.64,1) both; }
+    .kkm-pulse-ring { animation: kkm-pulse-ring 1.8s ease-out infinite; }
+
+    /* レインボーグラデーション文字（タイトル用） */
+    .kkm-text-rainbow {
+      background-image: linear-gradient(90deg, #f59e0b, #ef4444, #ec4899, #8b5cf6, #3b82f6, #10b981, #f59e0b);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: kkm-rainbow-shift 6s linear infinite;
+    }
+
+    /* キラキラのシマー効果（マスター済みカード等） */
+    .kkm-shimmer {
+      position: relative;
+      overflow: hidden;
+    }
+    .kkm-shimmer::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%);
+      background-size: 200% 100%;
+      animation: kkm-shimmer 2.8s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    /* ホバー時のポップ */
+    .kkm-pop:hover { transform: translateY(-2px) scale(1.03); }
+    .kkm-pop { transition: transform .2s cubic-bezier(.34,1.56,.64,1); }
+
+    /* 背景：淡いパステルのアニメーショングラデーション + ドット装飾 */
+    .kkm-app-bg {
+      background:
+        radial-gradient(circle at 20% 0%, rgba(254,202,202,0.35) 0%, transparent 40%),
+        radial-gradient(circle at 80% 10%, rgba(191,219,254,0.35) 0%, transparent 40%),
+        radial-gradient(circle at 70% 90%, rgba(221,214,254,0.35) 0%, transparent 45%),
+        radial-gradient(circle at 10% 80%, rgba(254,240,138,0.4) 0%, transparent 45%),
+        #fffbeb;
+      background-attachment: fixed;
+    }
+    .kkm-app-bg::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        radial-gradient(rgba(251,191,36,0.18) 1.2px, transparent 1.2px),
+        radial-gradient(rgba(244,114,182,0.14) 1.2px, transparent 1.2px);
+      background-size: 28px 28px, 38px 38px;
+      background-position: 0 0, 14px 14px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    /* 背景装飾の上にアプリ本体を */
+    .kkm-app-bg > * { position: relative; z-index: 1; }
+
+    /* 浮かぶ装飾絵文字（ヘッダー横などに散らす） */
+    .kkm-decor {
+      position: absolute;
+      pointer-events: none;
+      opacity: 0.55;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.08));
+    }
   </style>
 </head>
 <body>
