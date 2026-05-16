@@ -38,6 +38,70 @@ const KATA_TABLE = [
 const HIRA_LIST = HIRA_TABLE.filter(c => c);
 const KATA_LIST = KATA_TABLE.filter(c => c);
 
+// ★カスタマイズポイント: 濁音・半濁音・拗音／促音（小書き）の表
+const HIRA_DAKUON_TABLE = [
+  'が','ぎ','ぐ','げ','ご',
+  'ざ','じ','ず','ぜ','ぞ',
+  'だ','ぢ','づ','で','ど',
+  'ば','び','ぶ','べ','ぼ',
+];
+const HIRA_HANDAKUON_TABLE = [
+  'ぱ','ぴ','ぷ','ぺ','ぽ',
+];
+// 拗音は「き」＋「ゃ」のように２文字で書くため、まずは小書き文字の書き方だけ練習する
+const HIRA_YOUON_TABLE = [
+  'ゃ','ゅ','ょ','っ',
+];
+const KATA_DAKUON_TABLE = [
+  'ガ','ギ','グ','ゲ','ゴ',
+  'ザ','ジ','ズ','ゼ','ゾ',
+  'ダ','ヂ','ヅ','デ','ド',
+  'バ','ビ','ブ','ベ','ボ',
+];
+const KATA_HANDAKUON_TABLE = [
+  'パ','ピ','プ','ペ','ポ',
+];
+const KATA_YOUON_TABLE = [
+  'ャ','ュ','ョ','ッ',
+];
+const HIRA_DAKUON_LIST    = HIRA_DAKUON_TABLE.filter(c => c);
+const HIRA_HANDAKUON_LIST = HIRA_HANDAKUON_TABLE.filter(c => c);
+const HIRA_YOUON_LIST     = HIRA_YOUON_TABLE.filter(c => c);
+const KATA_DAKUON_LIST    = KATA_DAKUON_TABLE.filter(c => c);
+const KATA_HANDAKUON_LIST = KATA_HANDAKUON_TABLE.filter(c => c);
+const KATA_YOUON_LIST     = KATA_YOUON_TABLE.filter(c => c);
+const HIRA_ALL_LIST = [...HIRA_LIST, ...HIRA_DAKUON_LIST, ...HIRA_HANDAKUON_LIST, ...HIRA_YOUON_LIST];
+const KATA_ALL_LIST = [...KATA_LIST, ...KATA_DAKUON_LIST, ...KATA_HANDAKUON_LIST, ...KATA_YOUON_LIST];
+
+// 文字のしゅるい（清音／濁音／半濁音／拗音・促音）
+const KANA_KINDS = [
+  { key: 'seion',     label: 'せいおん',  short: 'せいおん',  icon: '🌸' },
+  { key: 'dakuon',    label: 'だくおん',  short: '゛',        icon: '🌟' },
+  { key: 'handakuon', label: 'はんだくおん', short: '゜',     icon: '⭐' },
+  { key: 'youon',     label: 'ようおん・そくおん', short: 'ゃゅょっ', icon: '✨' },
+];
+function getKanaTable(kanaMode, kanaKind) {
+  if (kanaMode === 'katakana') {
+    if (kanaKind === 'dakuon')    return KATA_DAKUON_TABLE;
+    if (kanaKind === 'handakuon') return KATA_HANDAKUON_TABLE;
+    if (kanaKind === 'youon')     return KATA_YOUON_TABLE;
+    return KATA_TABLE;
+  }
+  if (kanaKind === 'dakuon')    return HIRA_DAKUON_TABLE;
+  if (kanaKind === 'handakuon') return HIRA_HANDAKUON_TABLE;
+  if (kanaKind === 'youon')     return HIRA_YOUON_TABLE;
+  return HIRA_TABLE;
+}
+function getKanaList(kanaMode, kanaKind) {
+  return getKanaTable(kanaMode, kanaKind).filter(c => c);
+}
+function getKindOfChar(c) {
+  if (HIRA_DAKUON_LIST.includes(c) || KATA_DAKUON_LIST.includes(c))       return 'dakuon';
+  if (HIRA_HANDAKUON_LIST.includes(c) || KATA_HANDAKUON_LIST.includes(c)) return 'handakuon';
+  if (HIRA_YOUON_LIST.includes(c) || KATA_YOUON_LIST.includes(c))         return 'youon';
+  return 'seion';
+}
+
 // ★カスタマイズポイント: 「ことばあつめ」のヒント
 const WORD_HINTS_HIRA = [
   { w:'あめ', e:'🍬' }, { w:'いぬ', e:'🐶' }, { w:'うみ', e:'🌊' }, { w:'えき', e:'🚉' },
@@ -46,6 +110,13 @@ const WORD_HINTS_HIRA = [
   { w:'たこ', e:'🐙' }, { w:'つき', e:'🌙' }, { w:'にじ', e:'🌈' }, { w:'はな', e:'🌺' },
   { w:'ふね', e:'🚢' }, { w:'ほし', e:'⭐' }, { w:'みず', e:'💧' }, { w:'もも', e:'🍑' },
   { w:'やま', e:'⛰️' }, { w:'ゆき', e:'❄️' }, { w:'りんご', e:'🍎' }, { w:'れもん', e:'🍋' },
+  // 濁音
+  { w:'ぞう', e:'🐘' }, { w:'でんわ', e:'☎️' }, { w:'ぶどう', e:'🍇' }, { w:'かばん', e:'🎒' },
+  { w:'だんご', e:'🍡' }, { w:'べんとう', e:'🍱' },
+  // 半濁音
+  { w:'ぱんだ', e:'🐼' }, { w:'えんぴつ', e:'✏️' }, { w:'ぷりん', e:'🍮' }, { w:'たんぽぽ', e:'🌼' },
+  // 拗音・促音
+  { w:'ちょう', e:'🦋' }, { w:'きって', e:'📮' }, { w:'でんしゃ', e:'🚃' }, { w:'がっこう', e:'🏫' },
 ];
 const WORD_HINTS_KATA = [
   { w:'アイス', e:'🍦' }, { w:'イルカ', e:'🐬' }, { w:'ウサギ', e:'🐰' }, { w:'エビ', e:'🦐' },
@@ -53,6 +124,12 @@ const WORD_HINTS_KATA = [
   { w:'ケーキ', e:'🍰' }, { w:'コアラ', e:'🐨' }, { w:'サメ', e:'🦈' }, { w:'シマウマ', e:'🦓' },
   { w:'スイカ', e:'🍉' }, { w:'タコ', e:'🐙' }, { w:'チーズ', e:'🧀' }, { w:'トマト', e:'🍅' },
   { w:'ネコ', e:'🐱' }, { w:'ヘビ', e:'🐍' }, { w:'バナナ', e:'🍌' }, { w:'ライオン', e:'🦁' },
+  // 濁音
+  { w:'ゴリラ', e:'🦍' }, { w:'ダチョウ', e:'🐦' }, { w:'ブタ', e:'🐷' }, { w:'ゾウ', e:'🐘' },
+  // 半濁音
+  { w:'パンダ', e:'🐼' }, { w:'ピアノ', e:'🎹' }, { w:'プリン', e:'🍮' }, { w:'ペンギン', e:'🐧' },
+  // 拗音・促音
+  { w:'チョコ', e:'🍫' }, { w:'コップ', e:'🥤' }, { w:'ジャム', e:'🍓' },
 ];
 const EMOJI_CHOICES = ['😀','🍎','🐶','🐱','🌸','⭐','🌈','🍰','🚗','⚽','🎈','💧','🌙','☀️','🦋','🐟','🍓','🍙','🚀','🎵'];
 
@@ -592,11 +669,16 @@ function useStreak() {
 }
 
 // きょうの もじ（毎日変わるデイリーチャレンジ）
+// 清音をまずは優先し、すべてマスターしたら濁音・半濁音・拗音にひろがる
 function useDailyChallenge(kanaMode, mastered) {
   return useMemo(() => {
-    const list = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
-    const unmastered = list.filter(c => !mastered.includes(c));
-    const pool = unmastered.length > 0 ? unmastered : list;
+    const seion = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
+    const all   = kanaMode === 'katakana' ? KATA_ALL_LIST : HIRA_ALL_LIST;
+    const seionUnmastered = seion.filter(c => !mastered.includes(c));
+    const allUnmastered   = all.filter(c => !mastered.includes(c));
+    const pool = seionUnmastered.length > 0
+      ? seionUnmastered
+      : (allUnmastered.length > 0 ? allUnmastered : all);
     // 今日の日付をシードに（同じ日は同じ文字）
     const today = new Date();
     const seed = today.getFullYear()*10000 + (today.getMonth()+1)*100 + today.getDate();
@@ -811,11 +893,11 @@ function DailyChallenge({ char, kanaMode, progress, onPick }) {
 /* ──────────────────────────────────────────────────────────────
    12. <KanaTable>
    ────────────────────────────────────────────────────────────── */
-function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onSequence, onRandom }) {
-  const table = kanaMode === 'katakana' ? KATA_TABLE : HIRA_TABLE;
+function KanaTable({ kanaMode, setKanaMode, kanaKind, setKanaKind, progress, currentChar, onSelect, onSequence, onRandom }) {
+  const table = getKanaTable(kanaMode, kanaKind);
   return (
     <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-amber-100 p-2 md:p-4 flex flex-col h-full min-h-0">
-      <div className="flex gap-1.5 md:gap-2 mb-2 md:mb-3 shrink-0">
+      <div className="flex gap-1.5 md:gap-2 mb-1.5 md:mb-2 shrink-0">
         <button onClick={() => setKanaMode('hiragana')}
           className={`flex-1 py-1.5 md:py-2 rounded-xl font-black text-sm md:text-lg transition-all active:scale-95 border-2 ${
             kanaMode === 'hiragana' ? 'bg-gradient-to-br from-pink-400 to-rose-500 text-white border-pink-500 shadow-md' : 'bg-amber-50 text-amber-600 border-amber-100'
@@ -824,6 +906,20 @@ function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onS
           className={`flex-1 py-1.5 md:py-2 rounded-xl font-black text-sm md:text-lg transition-all active:scale-95 border-2 ${
             kanaMode === 'katakana' ? 'bg-gradient-to-br from-sky-400 to-indigo-500 text-white border-sky-500 shadow-md' : 'bg-amber-50 text-amber-600 border-amber-100'
           }`}>⚡ カタカナ</button>
+      </div>
+
+      {/* しゅるい（清音／濁音／半濁音／拗音・促音）のサブタブ */}
+      <div className="grid grid-cols-4 gap-1 mb-2 md:mb-3 shrink-0">
+        {KANA_KINDS.map(k => (
+          <button key={k.key} onClick={() => setKanaKind(k.key)}
+            className={`py-1 md:py-1.5 rounded-lg font-black text-[10px] md:text-xs border-2 transition-all active:scale-95 leading-tight ${
+              kanaKind === k.key
+                ? 'bg-gradient-to-br from-amber-400 to-orange-400 text-white border-amber-500 shadow'
+                : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100'
+            }`}>
+            <span className="block">{k.short}</span>
+          </button>
+        ))}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-amber-50/40 rounded-xl p-1.5 md:p-3 border border-amber-100">
@@ -2085,7 +2181,7 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
   const list  = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
   const availableHints = hints.filter(h => h.w.split('').every(c => usableInWords.includes(c)) && !words.some(w => w.text === h.w));
   // ステージ3（あと一歩で💮）の文字一覧 — モチベーション用
-  const almostChars = (kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST).filter(c => getStage(progress, c) === 3);
+  const almostChars = (kanaMode === 'katakana' ? KATA_ALL_LIST : HIRA_ALL_LIST).filter(c => getStage(progress, c) === 3);
 
   return (
     <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-amber-100 p-3 md:p-5 flex flex-col h-full overflow-hidden">
@@ -2195,7 +2291,8 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
 function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCancel, onSave }) {
   const [text, setText] = useState('');
   const [emoji, setEmoji] = useState(EMOJI_CHOICES[0]);
-  const table = kanaMode === 'katakana' ? KATA_TABLE : HIRA_TABLE;
+  const [kindTab, setKindTab] = useState('seion');
+  const table = getKanaTable(kanaMode, kindTab);
   const canSave = text.length >= 1;
   // この単語で💮になる数（プレビュー）
   const willMaster = useMemo(() => Array.from(new Set(text.split(''))).filter(c => getStage(progress, c) === 3), [text, progress]);
@@ -2255,6 +2352,16 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
 
         <div className="mb-3">
           <div className="text-xs font-black text-slate-500 mb-1.5">じぶんで かける じだけ つかえるよ（💮 = ことばで かんぺき）</div>
+          <div className="grid grid-cols-4 gap-1 mb-1.5">
+            {KANA_KINDS.map(k => (
+              <button key={k.key} onClick={() => setKindTab(k.key)}
+                className={`py-1 rounded-lg font-black text-[10px] md:text-xs border-2 transition-all active:scale-95 ${
+                  kindTab === k.key
+                    ? 'bg-amber-400 text-white border-amber-500 shadow'
+                    : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'
+                }`}>{k.short}</button>
+            ))}
+          </div>
           <div className="grid grid-cols-5 gap-1.5 bg-amber-50/40 p-2 rounded-xl border border-amber-100">
             {table.map((c, i) => {
               if (!c) return <div key={i} className="aspect-square"/>;
@@ -2319,7 +2426,7 @@ function ResetModal({ onCancel, onConfirm }) {
 /* ──────────────────────────────────────────────────────────────
    21. <MainBoard>
    ────────────────────────────────────────────────────────────── */
-function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, practiceCount, voiceOn, onGoToWords }) {
+function MainBoard({ kanaMode, setKanaMode, kanaKind, setKanaKind, progress, mastered, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, practiceCount, voiceOn, onGoToWords }) {
   const [currentChar, setCurrentChar] = useState(null);
   const [paths, setPaths] = useState(null);
   const [playMode, setPlayMode] = useState('free');
@@ -2331,13 +2438,20 @@ function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, o
     setPaths(p || []);
   }, []);
 
+  // デイリーチャレンジ：文字に合わせて しゅるい も自動で切り替え
+  function pickDaily(c) {
+    const kind = getKindOfChar(c);
+    if (kind !== kanaKind) setKanaKind(kind);
+    selectChar(c, 'free');
+  }
+
   function startSequence() {
-    const list = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
+    const list = getKanaList(kanaMode, kanaKind);
     const target = list.find(c => getStage(progress, c) < 4) || list[0];
     selectChar(target, 'sequential');
   }
   function startRandom() {
-    const list = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
+    const list = getKanaList(kanaMode, kanaKind);
     let pool = list.filter(c => getStage(progress, c) < 4);
     if (pool.length === 0) pool = list;
     const target = pool[Math.floor(Math.random()*pool.length)];
@@ -2345,13 +2459,20 @@ function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, o
   }
   function nextChar() {
     if (!currentChar) return;
-    const list = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
+    const list = getKanaList(kanaMode, kanaKind);
     if (playMode === 'random') return startRandom();
     const idx = list.indexOf(currentChar);
+    if (idx < 0) { return selectChar(list[0], playMode); }
     const nx  = list[(idx+1) % list.length];
     selectChar(nx, playMode);
   }
-  useEffect(() => { setCurrentChar(null); setPaths(null); }, [kanaMode]);
+  // 表のしゅるい／かなが切り替わったとき、いまの文字がその表にないなら選択解除
+  useEffect(() => {
+    if (!currentChar) return;
+    const list = getKanaList(kanaMode, kanaKind);
+    if (!list.includes(currentChar)) { setCurrentChar(null); setPaths(null); }
+    // eslint-disable-next-line
+  }, [kanaMode, kanaKind]);
 
   const stageObj = currentChar ? (progress[currentChar] || newStageObj()) : null;
 
@@ -2369,10 +2490,11 @@ function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, o
     <div className="flex-1 flex flex-col p-2 md:p-4 min-h-0 overflow-hidden gap-2 md:gap-3">
       <div className="shrink-0">
         <DailyChallenge char={dailyChar} kanaMode={kanaMode} progress={progress}
-          onPick={(c) => selectChar(c, 'free')}/>
+          onPick={pickDaily}/>
       </div>
       <div className="flex-1 grid grid-cols-2 gap-2 md:gap-4 min-h-0 overflow-hidden">
         <KanaTable kanaMode={kanaMode} setKanaMode={setKanaMode}
+          kanaKind={kanaKind} setKanaKind={setKanaKind}
           progress={progress} currentChar={currentChar}
           onSelect={(c) => selectChar(c,'free')}
           onSequence={startSequence} onRandom={startRandom}/>
@@ -2395,6 +2517,7 @@ function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, o
 function App() {
   const [view, setView] = useState('practice');
   const [kanaMode, setKanaMode] = useState('hiragana');
+  const [kanaKind, setKanaKind] = useState('seion');
   const [progress, setProgress] = useState(loadInitialProgress);
   useEffect(() => { try { localStorage.setItem(KEY_PROGRESS, JSON.stringify(progress)); } catch {} }, [progress]);
   const mastered = useMemo(() => getMasteredList(progress), [progress]);
@@ -2540,6 +2663,7 @@ function App() {
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {view === 'practice' && (
           <MainBoard kanaMode={kanaMode} setKanaMode={setKanaMode}
+            kanaKind={kanaKind} setKanaKind={setKanaKind}
             progress={progress} mastered={mastered}
             onAnimeViewed={onAnimeViewed}
             onRoundComplete={onRoundComplete}
