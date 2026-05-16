@@ -604,12 +604,14 @@ function Mascot({ message, mood = 'happy', size = 'normal' }) {
   // mood: happy / cheer / wow / sad
   const face = { happy: '🐤', cheer: '🐥', wow: '🌟🐤', sad: '🐣' }[mood] || '🐤';
   const wrap = size === 'small' ? 'text-2xl' : 'text-4xl md:text-5xl';
+  const anim = mood === 'wow' ? 'kkm-sparkle' : mood === 'cheer' ? 'animate-bounce' : 'kkm-float';
   return (
     <div className="flex items-end gap-2">
-      <div className={`${wrap} animate-bounce`} style={{ animationDuration: '2s' }}>{face}</div>
+      <div className={`${wrap} ${anim}`} style={anim === 'animate-bounce' ? { animationDuration: '1.4s' } : undefined}>{face}</div>
       {message && (
-        <div className="relative bg-white border-2 border-amber-300 rounded-2xl rounded-bl-none px-3 py-1.5 shadow-sm">
+        <div className="relative bg-white border-2 border-amber-300 rounded-2xl rounded-bl-none px-3 py-1.5 shadow-sm kkm-pop-in">
           <span className="text-xs md:text-sm font-black text-amber-700">{message}</span>
+          <span className="absolute -top-2 -right-2 text-sm kkm-sparkle">✨</span>
         </div>
       )}
     </div>
@@ -642,29 +644,33 @@ function StreakBadge({ streak }) {
    ────────────────────────────────────────────────────────────── */
 function Header({ view, setView, mastered, onReset, onOpenBadges, streak, voiceOn, setVoiceOn, earnedCount }) {
   return (
-    <nav className="shrink-0 bg-white border-b-4 border-amber-500 px-3 md:px-6 py-1.5 md:py-2.5 flex justify-between items-center shadow-sm z-10 gap-2">
+    <nav className="shrink-0 bg-white/90 backdrop-blur border-b-4 border-amber-500 px-3 md:px-6 py-1.5 md:py-2.5 flex justify-between items-center shadow-sm z-10 gap-2 relative overflow-hidden">
+      {/* 装飾：背景に浮かぶ絵文字 */}
+      <span className="kkm-decor kkm-float-slow text-base md:text-xl" style={{ top: '4px', left: '40%', animationDelay: '0s' }}>⭐</span>
+      <span className="kkm-decor kkm-float-slow text-base md:text-xl" style={{ bottom: '2px', left: '55%', animationDelay: '1.2s' }}>🌈</span>
+      <span className="kkm-decor kkm-float-slow text-base md:text-xl" style={{ top: '3px', left: '70%', animationDelay: '2.4s' }}>✨</span>
       {/* 左：ロゴ + アプリ名 */}
-      <div className="flex items-center gap-2 md:gap-3 shrink-0 min-w-0">
-        <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-amber-400 text-white flex items-center justify-center shadow-md text-xl shrink-0">🐤</div>
-        <h1 className="text-sm md:text-xl font-black text-slate-700 tracking-tight leading-tight truncate">
+      <div className="flex items-center gap-2 md:gap-3 shrink-0 min-w-0 relative z-10">
+        <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-amber-300 to-amber-500 text-white flex items-center justify-center shadow-md text-xl shrink-0 kkm-wiggle">🐤</div>
+        <h1 className="text-sm md:text-xl font-black tracking-tight leading-tight truncate kkm-text-rainbow">
           ひらがな・カタカナ<br className="md:hidden"/>かきかたマスター
         </h1>
       </div>
 
       {/* 中央：ビュー切替 */}
-      <div className="hidden sm:flex bg-amber-50 rounded-full p-1 shadow-inner border border-amber-100">
+      <div className="hidden sm:flex bg-amber-50 rounded-full p-1 shadow-inner border border-amber-100 relative z-10">
         <button onClick={() => setView('practice')}
           className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
-            view === 'practice' ? 'bg-amber-400 text-white shadow' : 'text-amber-700 hover:bg-amber-100'
+            view === 'practice' ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-md' : 'text-amber-700 hover:bg-amber-100'
           }`}><IconPencil size={16}/> もじをかく</button>
         <button onClick={() => setView('words')}
           className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
-            view === 'words' ? 'bg-amber-400 text-white shadow' : 'text-amber-700 hover:bg-amber-100'
+            view === 'words' ? 'bg-gradient-to-br from-pink-400 to-violet-500 text-white shadow-md' : 'text-amber-700 hover:bg-amber-100'
           }`}><IconBook size={16}/> ことばずかん</button>
       </div>
 
       {/* 右：ステータス類 */}
-      <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 md:gap-2 shrink-0 relative z-10">
         <StreakBadge streak={streak}/>
         <LevelBadge masteredCount={mastered.length} onClick={onOpenBadges}/>
         <button onClick={onOpenBadges} title="ごほうびシール"
@@ -707,14 +713,14 @@ function Footer() {
    ────────────────────────────────────────────────────────────── */
 function ModeTabsMobile({ view, setView }) {
   return (
-    <div className="sm:hidden flex bg-white rounded-full p-1 shadow-sm border border-amber-100 mx-3 mt-2">
+    <div className="sm:hidden flex bg-white rounded-full p-1 shadow-sm border border-amber-100 mx-3 mt-2 relative z-10">
       <button onClick={() => setView('practice')}
         className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
-          view === 'practice' ? 'bg-amber-400 text-white shadow' : 'text-amber-700'
+          view === 'practice' ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow' : 'text-amber-700'
         }`}><IconPencil size={14}/> もじをかく</button>
       <button onClick={() => setView('words')}
         className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
-          view === 'words' ? 'bg-amber-400 text-white shadow' : 'text-amber-700'
+          view === 'words' ? 'bg-gradient-to-br from-pink-400 to-violet-500 text-white shadow' : 'text-amber-700'
         }`}><IconBook size={14}/> ことばずかん</button>
     </div>
   );
@@ -729,8 +735,8 @@ function DailyChallenge({ char, kanaMode, progress, onPick }) {
   const isMastered = stage >= 4;
   return (
     <button onClick={() => onPick(char)}
-      className="w-full bg-gradient-to-r from-amber-100 via-rose-50 to-amber-100 border-2 border-amber-300 rounded-2xl p-2 md:p-3 flex items-center gap-2 md:gap-3 shadow-sm hover:shadow-md transition-all active:scale-[0.99]">
-      <div className="flex items-center justify-center bg-white rounded-xl w-10 h-10 md:w-16 md:h-16 border-2 border-amber-400 shadow-inner shrink-0">
+      className="w-full bg-gradient-to-r from-amber-100 via-pink-100 to-sky-100 border-2 border-amber-300 rounded-2xl p-2 md:p-3 flex items-center gap-2 md:gap-3 shadow-sm hover:shadow-md transition-all active:scale-[0.99] kkm-shimmer">
+      <div className="flex items-center justify-center bg-white rounded-xl w-10 h-10 md:w-16 md:h-16 border-2 border-amber-400 shadow-inner shrink-0 kkm-float">
         <span className="text-2xl md:text-4xl font-black text-amber-700">{char}</span>
       </div>
       <div className="flex-1 text-left min-w-0">
@@ -741,7 +747,7 @@ function DailyChallenge({ char, kanaMode, progress, onPick }) {
           {isMastered ? '💮 もう おぼえたよ！ もう いっかい かいてみよう' : 'チャレンジ してみよう！'}
         </div>
       </div>
-      <div className="text-xl md:text-3xl shrink-0">✨</div>
+      <div className="text-xl md:text-3xl shrink-0 kkm-sparkle">✨</div>
     </button>
   );
 }
@@ -752,16 +758,16 @@ function DailyChallenge({ char, kanaMode, progress, onPick }) {
 function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onSequence, onRandom }) {
   const table = kanaMode === 'katakana' ? KATA_TABLE : HIRA_TABLE;
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-amber-100 p-2 md:p-4 flex flex-col h-full min-h-0">
+    <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-amber-100 p-2 md:p-4 flex flex-col h-full min-h-0">
       <div className="flex gap-1.5 md:gap-2 mb-2 md:mb-3 shrink-0">
         <button onClick={() => setKanaMode('hiragana')}
           className={`flex-1 py-1.5 md:py-2 rounded-xl font-black text-sm md:text-lg transition-all active:scale-95 border-2 ${
-            kanaMode === 'hiragana' ? 'bg-amber-400 text-white border-amber-500 shadow' : 'bg-amber-50 text-amber-600 border-amber-100'
-          }`}>ひらがな</button>
+            kanaMode === 'hiragana' ? 'bg-gradient-to-br from-pink-400 to-rose-500 text-white border-pink-500 shadow-md' : 'bg-amber-50 text-amber-600 border-amber-100'
+          }`}>🌸 ひらがな</button>
         <button onClick={() => setKanaMode('katakana')}
           className={`flex-1 py-1.5 md:py-2 rounded-xl font-black text-sm md:text-lg transition-all active:scale-95 border-2 ${
-            kanaMode === 'katakana' ? 'bg-amber-400 text-white border-amber-500 shadow' : 'bg-amber-50 text-amber-600 border-amber-100'
-          }`}>カタカナ</button>
+            kanaMode === 'katakana' ? 'bg-gradient-to-br from-sky-400 to-indigo-500 text-white border-sky-500 shadow-md' : 'bg-amber-50 text-amber-600 border-amber-100'
+          }`}>⚡ カタカナ</button>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-amber-50/40 rounded-xl p-1.5 md:p-3 border border-amber-100">
@@ -772,18 +778,19 @@ function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onS
             const isCurrent = currentChar === char;
             // ステージに応じた見た目
             let cls = 'bg-white text-slate-700 border-amber-200 hover:bg-amber-50';
+            let extra = '';
             if (stage === 1) cls = 'bg-sky-50 text-sky-700 border-sky-300';
             else if (stage === 2) cls = 'bg-emerald-50 text-emerald-700 border-emerald-300';
-            else if (stage === 3) cls = 'bg-violet-50 text-violet-700 border-violet-400 ring-1 ring-violet-200';
-            else if (stage === 4) cls = 'bg-amber-100 text-amber-700 border-amber-400 ring-2 ring-amber-300';
-            if (isCurrent) cls = 'bg-sky-400 text-white border-sky-500 scale-110 z-10 shadow-lg';
+            else if (stage === 3) { cls = 'bg-violet-50 text-violet-700 border-violet-400 ring-1 ring-violet-200'; extra = 'kkm-pop'; }
+            else if (stage === 4) { cls = 'bg-gradient-to-br from-amber-100 to-yellow-200 text-amber-700 border-amber-400 ring-2 ring-amber-300'; extra = 'kkm-shimmer kkm-pop'; }
+            if (isCurrent) { cls = 'bg-gradient-to-br from-sky-400 to-indigo-500 text-white border-sky-500 scale-110 z-10 shadow-lg'; extra = 'kkm-pulse-ring'; }
             const info = STAGE_INFO[stage];
             return (
               <button key={i} onClick={() => onSelect(char)}
-                className={`aspect-square rounded-lg font-black text-lg md:text-3xl border-2 shadow-sm relative transition-all active:scale-95 ${cls}`}>
+                className={`aspect-square rounded-lg font-black text-lg md:text-3xl border-2 shadow-sm relative transition-all active:scale-95 ${cls} ${extra}`}>
                 {char}
                 {!isCurrent && stage > 0 && (
-                  <span className="absolute -top-1 -right-1 text-xs leading-none">{info.icon}</span>
+                  <span className={`absolute -top-1 -right-1 text-xs leading-none ${stage === 4 ? 'kkm-sparkle' : ''}`}>{info.icon}</span>
                 )}
               </button>
             );
@@ -799,11 +806,11 @@ function KanaTable({ kanaMode, setKanaMode, progress, currentChar, onSelect, onS
 
       <div className="flex gap-1.5 md:gap-2 mt-2 md:mt-3 shrink-0">
         <button onClick={onSequence}
-          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-emerald-400 text-white shadow border-b-4 border-emerald-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1 md:gap-1.5">
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow border-b-4 border-emerald-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1 md:gap-1.5 kkm-pop">
           <IconCheck size={14}/> あいうえお<span className="hidden md:inline">じゅん</span>
         </button>
         <button onClick={onRandom}
-          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-violet-400 text-white shadow border-b-4 border-violet-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1 md:gap-1.5">
+          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-gradient-to-br from-fuchsia-400 to-violet-500 text-white shadow border-b-4 border-violet-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-1 md:gap-1.5 kkm-pop">
           <IconSparkle size={14}/> ばらばら
         </button>
       </div>
@@ -1177,7 +1184,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   }, [paths, currentStroke, isCleared, stage]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-orange-100 p-2 md:p-4 flex flex-col h-full min-h-0">
+    <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-orange-100 p-2 md:p-4 flex flex-col h-full min-h-0">
       <div className="flex justify-between items-center mb-1 md:mb-2 shrink-0 gap-2">
         <span className={`text-[10px] md:text-sm font-bold px-2 md:px-3 py-0.5 md:py-1 rounded-full truncate ${
           isTraceMode ? 'text-emerald-700 bg-emerald-100' : 'text-violet-700 bg-violet-100'
@@ -1680,11 +1687,12 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
   const almostChars = (kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST).filter(c => getStage(progress, c) === 3);
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-amber-100 p-3 md:p-5 flex flex-col h-full overflow-hidden">
+    <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-amber-100 p-3 md:p-5 flex flex-col h-full overflow-hidden">
       <div className="flex justify-between items-center mb-3 shrink-0 gap-2">
-        <h2 className="flex items-center gap-2 text-lg md:text-xl font-black text-amber-700 truncate">
-          <IconBook size={22}/> あつめた ことば
-          <span className="ml-1 text-xs bg-amber-100 px-2 py-0.5 rounded-full">{collected.length}</span>
+        <h2 className="flex items-center gap-2 text-lg md:text-xl font-black truncate">
+          <span className="kkm-float text-2xl">📖</span>
+          <span className="kkm-text-rainbow">あつめた ことば</span>
+          <span className="ml-1 text-xs bg-gradient-to-br from-amber-200 to-amber-300 text-amber-800 px-2 py-0.5 rounded-full shadow-sm">{collected.length}</span>
         </h2>
         <div className="flex bg-amber-50 rounded-full p-1 border border-amber-100 shrink-0">
           <button onClick={() => setKanaMode('hiragana')}
@@ -1707,8 +1715,8 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">
             {collected.slice().reverse().map(w => (
-              <div key={w.id} className="bg-white rounded-xl shadow-sm border-2 border-amber-200 p-3 flex flex-col items-center gap-1 relative group">
-                <span className="text-4xl">{w.emoji || '✨'}</span>
+              <div key={w.id} className="bg-gradient-to-br from-white to-amber-50 rounded-xl shadow-sm hover:shadow-lg border-2 border-amber-200 p-3 flex flex-col items-center gap-1 relative group kkm-pop kkm-pop-in">
+                <span className="text-4xl group-hover:scale-110 transition-transform">{w.emoji || '✨'}</span>
                 <button onClick={() => speakText(w.text, voiceOn)} disabled={!voiceOn}
                   className="font-black text-lg text-slate-700 hover:text-amber-600 transition-all active:scale-95 disabled:cursor-default">
                   {w.text}
@@ -1765,8 +1773,8 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
       )}
 
       <button onClick={() => setAddOpen(true)}
-        className="py-3 rounded-xl font-black text-base md:text-lg bg-amber-400 text-white shadow border-b-4 border-amber-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-2 shrink-0">
-        <IconPlus size={20}/> あたらしい ことばを ふやす
+        className="py-3 rounded-xl font-black text-base md:text-lg bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 text-white shadow-md border-b-4 border-amber-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 flex items-center justify-center gap-2 shrink-0 kkm-pop">
+        <IconPlus size={20}/> あたらしい ことばを ふやす <span className="text-xl">✨</span>
       </button>
 
       {addOpen && (
@@ -1793,12 +1801,13 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-3" onClick={onCancel}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-amber-300 p-4 md:p-6 max-w-lg w-full max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-3">
+      <div className="bg-white rounded-3xl shadow-2xl border-4 border-amber-300 max-w-lg w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center px-4 md:px-6 pt-4 md:pt-6 pb-3 shrink-0">
           <h3 className="font-black text-lg text-amber-700 flex items-center gap-2"><IconPlus size={20}/> ことばを つくろう</h3>
           <button onClick={onCancel} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95"><IconX size={16}/></button>
         </div>
 
+        <div className="px-4 md:px-6 overflow-y-auto flex-1 min-h-0">
         <div className="bg-amber-50 rounded-2xl border-2 border-amber-200 p-3 md:p-4 mb-3 flex items-center gap-3 min-h-[80px]">
           <span className="text-4xl md:text-5xl">{emoji}</span>
           <span className="flex-1 text-2xl md:text-3xl font-black text-slate-700 break-all">
@@ -1867,7 +1876,9 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
           </div>
         </div>
 
-        <div className="flex gap-2">
+        </div>
+
+        <div className="flex gap-2 px-4 md:px-6 pt-3 pb-4 md:pb-6 border-t border-amber-100 bg-white rounded-b-3xl shrink-0">
           <button onClick={onCancel}
             className="flex-1 py-2.5 rounded-xl font-black text-sm bg-slate-100 text-slate-500 shadow-sm border-b-4 border-slate-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2">やめる</button>
           <button disabled={!canSave} onClick={() => onSave({ text, emoji, kanaMode })}
@@ -2114,7 +2125,7 @@ function App() {
   const resetAll = () => { localStorage.clear(); window.location.reload(); };
 
   return (
-    <div className="h-screen flex flex-col bg-amber-50/40 overflow-hidden" style={{ fontFamily: "'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif", fontWeight: 600 }}>
+    <div className="h-screen flex flex-col kkm-app-bg overflow-hidden relative" style={{ fontFamily: "'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif", fontWeight: 600 }}>
       <canvas id="confettiCanvas" className="fixed inset-0 pointer-events-none z-[400]"/>
       <Header view={view} setView={setView} mastered={mastered}
         onReset={() => setResetOpen(true)}
