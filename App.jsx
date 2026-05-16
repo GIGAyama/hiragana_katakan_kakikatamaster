@@ -231,44 +231,215 @@ async function fetchKanjiVG(char) {
     kanjiPathsCache[char] = paths; return paths;
   } catch (e) { return null; }
 }
-// 自力書きの採点：お手本パスとユーザーの描画を重ね合わせて 0〜100 を返す
-function scoreDrawing(userCanvas, templatePaths) {
-  if (!userCanvas || !templatePaths || templatePaths.length === 0) return 0;
-  const size = userCanvas.width;
-  if (!size) return 0;
-  // お手本を「太め」に描いたマスクを作る（小学生にやさしい許容範囲）
-  const off = document.createElement('canvas');
-  off.width = size; off.height = size;
-  const octx = off.getContext('2d');
-  octx.save();
-  octx.scale(size/109, size/109);
-  octx.strokeStyle = '#000';
-  octx.lineWidth = 16;
-  octx.lineCap = 'round';
-  octx.lineJoin = 'round';
-  templatePaths.forEach(d => octx.stroke(new Path2D(d)));
-  octx.restore();
-  let tplData, usrData;
-  try {
-    tplData = octx.getImageData(0,0,size,size).data;
-    usrData = userCanvas.getContext('2d').getImageData(0,0,size,size).data;
-  } catch (e) { return 0; }
-  let tplPx = 0, usrPx = 0, hit = 0;
-  for (let i = 3; i < tplData.length; i += 4) {
-    const t = tplData[i] > 30;
-    const u = usrData[i] > 30;
-    if (t) tplPx++;
-    if (u) {
-      usrPx++;
-      if (t) hit++;
+/* ──────────────────────────────────────────────────────────────
+   3.5. 採点ロジック（独自）
+
+   1年生でも納得感のあるフィードバックを返すために、ピクセル一致では
+   なく「筆跡そのもの」の幾何的特徴で採点する。
+
+   呼び出し側で画数（ストローク数）が一致していることを保証してから
+   呼ぶこと（画数違反は採点せず、別途やり直しフローを起こす）。
+
+   観点と配点：
+     ・かきじゅん         30点（始点の位置 + 向きベクトル）
+     ・マスの つかいかた  30点（マスを4等分した部屋の使い方）
+     ・せんの こうさ      20点（必要な交差ペアの有無）
+     ・おおきさ・いち     20点（バウンディングボックスの大きさ・中心）
+
+   戻り値：{ total, breakdown:[{key,label,score,max,status,advice}], comment, passed }
+   ────────────────────────────────────────────────────────────── */
+
+// SVG パス文字列を N 点にサンプリングして [{x,y}] in [0..1] で返す
+function sampleSvgPath(d, n) {
+  if (!d) return [];
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  const p = document.createElementNS(svgNS, 'path');
+  p.setAttribute('d', d);
+  svg.appendChild(p);
+  document.body.appendChild(svg);
+  const len = p.getTotalLength();
+  const pts = [];
+  if (len > 0 && n >= 2) {
+    for (let i = 0; i < n; i++) {
+      const t = (i / (n - 1)) * len;
+      const pt = p.getPointAtLength(t);
+      pts.push({ x: pt.x / 109, y: pt.y / 109 });
     }
   }
-  if (tplPx === 0 || usrPx === 0) return 0;
-  const recall    = hit / tplPx;
-  const precision = hit / usrPx;
-  // F1スコアっぽい指標
-  const f = 2 * recall * precision / Math.max(0.0001, recall + precision);
-  return Math.max(0, Math.min(100, Math.round(f * 100)));
+  document.body.removeChild(svg);
+  return pts;
+}
+
+// 近すぎる点を間引く（ノイズと計算量を減らす）
+function simplifyPoints(pts) {
+  if (!pts || pts.length === 0) return [];
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const prev = out[out.length - 1];
+    if (Math.hypot(pts[i].x - prev.x, pts[i].y - prev.y) > 0.005) out.push(pts[i]);
+  }
+  if (out.length === 1 && pts.length > 1) out.push(pts[pts.length - 1]);
+  return out;
+}
+
+// マスを4等分した部屋番号（0:TL, 1:TR, 2:BL, 3:BR）
+function quadrantOf(p) {
+  return (p.x >= 0.5 ? 1 : 0) | (p.y >= 0.5 ? 2 : 0);
+}
+function unionRooms(polys) {
+  const s = new Set();
+  for (const poly of polys) for (const p of poly) s.add(quadrantOf(p));
+  return s;
+}
+
+// 2線分の交差判定（端点接触は除外）
+function segmentsCross(a1, a2, b1, b2) {
+  const sgn = (v) => v > 1e-9 ? 1 : v < -1e-9 ? -1 : 0;
+  const o = (p, q, r) => sgn((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  const o1 = o(a1, a2, b1), o2 = o(a1, a2, b2);
+  const o3 = o(b1, b2, a1), o4 = o(b1, b2, a2);
+  return o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0 && o1 !== o2 && o3 !== o4;
+}
+function polylinesCross(p, q) {
+  for (let i = 0; i < p.length - 1; i++) {
+    for (let j = 0; j < q.length - 1; j++) {
+      if (segmentsCross(p[i], p[i+1], q[j], q[j+1])) return true;
+    }
+  }
+  return false;
+}
+function crossPairSet(polys) {
+  const pairs = new Set();
+  for (let i = 0; i < polys.length; i++) {
+    for (let j = i + 1; j < polys.length; j++) {
+      if (polylinesCross(polys[i], polys[j])) pairs.add(`${i},${j}`);
+    }
+  }
+  return pairs;
+}
+
+// 観点①：かきじゅん（0..1）
+function evalStrokeOrder(usrPolys, tplPolys) {
+  const n = Math.min(usrPolys.length, tplPolys.length);
+  if (n === 0) return 0;
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < n; i++) {
+    const u = usrPolys[i], t = tplPolys[i];
+    if (u.length < 2 || t.length < 2) continue;
+    const us = u[0], ue = u[u.length - 1];
+    const ts = t[0], te = t[t.length - 1];
+    // 始点距離：0.30（マスの約1/3）以上ズレたら 0 点
+    const ds = Math.hypot(us.x - ts.x, us.y - ts.y);
+    const posScore = Math.max(0, 1 - ds / 0.30);
+    // 向きベクトルの cos 類似度を [0..1] にマップ
+    const uvx = ue.x - us.x, uvy = ue.y - us.y;
+    const tvx = te.x - ts.x, tvy = te.y - ts.y;
+    const ul = Math.hypot(uvx, uvy), tl = Math.hypot(tvx, tvy);
+    let dirScore = 0.5;
+    if (ul > 0.01 && tl > 0.01) {
+      const cos = (uvx * tvx + uvy * tvy) / (ul * tl);
+      dirScore = Math.max(0, (cos + 0.2) / 1.2);
+    }
+    sum += 0.55 * posScore + 0.45 * dirScore;
+    cnt++;
+  }
+  return cnt === 0 ? 0 : sum / cnt;
+}
+
+// 観点②：部屋の使い方（0..1）
+function evalRooms(usrPolys, tplPolys) {
+  const t = unionRooms(tplPolys);
+  const u = unionRooms(usrPolys);
+  if (t.size === 0 && u.size === 0) return 1;
+  let inter = 0;
+  for (const q of u) if (t.has(q)) inter++;
+  const precision = u.size === 0 ? 0 : inter / u.size;
+  const recall    = t.size === 0 ? 1 : inter / t.size;
+  if (precision + recall === 0) return 0;
+  // recall（お手本の部屋を埋められたか）を重視
+  return (precision + 2 * recall) / 3;
+}
+
+// 観点③：線の交差（0..1）
+function evalCrossings(usrPolys, tplPolys) {
+  const t = crossPairSet(tplPolys);
+  const u = crossPairSet(usrPolys);
+  if (t.size === 0 && u.size === 0) return 1;
+  let inter = 0;
+  for (const k of u) if (t.has(k)) inter++;
+  if (t.size === 0) {
+    // 不要な交差を作ってしまった → 1本あたり 30% 減点（最低 0）
+    return Math.max(0, 1 - u.size * 0.3);
+  }
+  const precision = u.size === 0 ? 0 : inter / u.size;
+  const recall    = inter / t.size;
+  if (precision + recall === 0) return 0;
+  return (2 * precision * recall) / (precision + recall);
+}
+
+// 観点④：おおきさ・いち（0..1）
+function evalBalance(usrPolys) {
+  let xmin = 1, xmax = 0, ymin = 1, ymax = 0, n = 0;
+  for (const poly of usrPolys) for (const p of poly) {
+    if (p.x < xmin) xmin = p.x;
+    if (p.x > xmax) xmax = p.x;
+    if (p.y < ymin) ymin = p.y;
+    if (p.y > ymax) ymax = p.y;
+    n++;
+  }
+  if (n === 0) return 0;
+  const w = xmax - xmin, h = ymax - ymin;
+  // 一辺 0.55〜0.95 が満点。小さすぎ・はみ出しは減点
+  const sizeOk = (v) => v >= 0.55 && v <= 0.95 ? 1
+                       : v < 0.55 ? Math.max(0, v / 0.55)
+                       : Math.max(0, 1 - (v - 0.95) / 0.05);
+  const sizeScore = (sizeOk(w) + sizeOk(h)) / 2;
+  const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
+  const cd = Math.hypot(cx - 0.5, cy - 0.5);
+  const centerScore = Math.max(0, 1 - cd / 0.25);
+  return 0.6 * sizeScore + 0.4 * centerScore;
+}
+
+function adviceFor(key, raw) {
+  const good = raw >= 0.85, ok = raw >= 0.6;
+  if (good) return 'ばっちり！';
+  switch (key) {
+    case 'order':     return ok ? 'もうすこし じゅんばんを たしかめてね' : 'かきじゅんを みなおして もう いっかい！';
+    case 'rooms':     return ok ? 'マスを もうちょっと ひろく つかおう' : 'すみずみまで つかえる ように しよう';
+    case 'crossings': return ok ? 'せんの かさなる ところを ていねいに' : 'せんを ちゃんと かさねて かこう';
+    case 'balance':   return ok ? 'まんなかに かくと きれいだよ' : 'マスの まんなかに おおきく かこう';
+  }
+  return '';
+}
+
+// 自力書きの採点：ユーザー筆跡（画ごとの点列）とお手本パスを比較
+// userStrokes: [{ points: [{x,y in 0..1}, ...] }, ...]
+// templatePaths: KanjiVG の <path d="..."> 文字列の配列
+function scoreHandwriting(userStrokes, templatePaths) {
+  if (!userStrokes || !templatePaths || templatePaths.length === 0) return null;
+  const tplPolys = templatePaths.map(d => sampleSvgPath(d, 24));
+  const usrPolys = userStrokes.map(s => simplifyPoints(s.points || []));
+  const items = [
+    { key: 'order',     label: 'かきじゅん',         max: 30, raw: evalStrokeOrder(usrPolys, tplPolys) },
+    { key: 'rooms',     label: 'マスの つかいかた', max: 30, raw: evalRooms(usrPolys, tplPolys) },
+    { key: 'crossings', label: 'せんの こうさ',     max: 20, raw: evalCrossings(usrPolys, tplPolys) },
+    { key: 'balance',   label: 'おおきさ・いち',     max: 20, raw: evalBalance(usrPolys) },
+  ];
+  const breakdown = items.map(it => ({
+    key: it.key,
+    label: it.label,
+    max: it.max,
+    score: Math.round(it.raw * it.max),
+    status: it.raw >= 0.85 ? 'good' : it.raw >= 0.6 ? 'ok' : 'bad',
+    advice: adviceFor(it.key, it.raw),
+  }));
+  const total = breakdown.reduce((s, b) => s + b.score, 0);
+  const comment = total >= 90 ? 'すばらしい！'
+                : total >= 70 ? 'じょうず！'
+                : total >= 50 ? 'いい かんじ！'
+                : 'もう いっかい！';
+  return { total, breakdown, comment, passed: total >= 60 };
 }
 
 function getStartEndPoints(pathStr) {
@@ -601,7 +772,7 @@ function stageMascotMessage(char, stage, so) {
   return '💮 かんぺき！ もう いちど かいてみる？';
 }
 
-function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onNext, playMode, practiceCount, voiceOn, onGoToWords }) {
+function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, onNext, playMode, practiceCount, voiceOn, onGoToWords }) {
   const writeRef = useRef(null);
   const inkRef   = useRef(null);
   const guideRef = useRef(null);
@@ -614,9 +785,12 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   const [mascotMood, setMascotMood] = useState('cheer');
   const prevStageRef = useRef(stageObj?.stage ?? 0);
   const [stageUp, setStageUp] = useState(null); // { from, to }
-  const [scoreInfo, setScoreInfo] = useState(null); // { score, passed }
+  const [scoreInfo, setScoreInfo] = useState(null); // { total, breakdown, comment, passed }
   const drawingRef = useRef(false);
   const lastRef    = useRef({ x: 0, y: 0 });
+  // 自力モードでユーザーが書いた画ごとの点列 [{points:[{x,y in 0..1}]}, ...]
+  const userStrokesRef   = useRef([]);
+  const currentPointsRef = useRef([]);
 
   // ステージから派生するモード
   const stage = stageObj?.stage ?? 0;
@@ -669,6 +843,16 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
         setMascotMsg(stageMascotMessage(char, 1, stageObj));
         setMascotMood('cheer');
       }
+    } else if (stage < prev) {
+      // ステージダウン（画数違い等でやり直し）：かきじゅんアニメ → なぞり書きへ
+      setScoreInfo(null);
+      setCurrentStroke(0);
+      setMistakes(0); setHasMistaken(false);
+      clearAll();
+      requestAnimationFrame(() => { redrawGuide(); });
+      setShowAnime(true);
+      setMascotMsg('かくすうを そろえて かいてみよう！ まずは かきじゅんを みてね');
+      setMascotMood('sad');
     }
     prevStageRef.current = stage;
   }, [stage]);
@@ -708,6 +892,8 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       const c = r.current; if (!c) return;
       const ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height);
     });
+    userStrokesRef.current = [];
+    currentPointsRef.current = [];
   }
   function resize() {
     const c = writeRef.current; if (!c) return;
@@ -772,6 +958,8 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     }
     drawingRef.current = true;
     lastRef.current = { x: pt.cx, y: pt.cy };
+    // 自力モード：この画の点列を新たに記録しはじめる
+    if (st >= 2) currentPointsRef.current = [{ x: pt.nx, y: pt.ny }];
     const c = writeRef.current;
     const ctx = c.getContext('2d');
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -782,6 +970,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   function doMove(clientX, clientY) {
     if (!drawingRef.current) return;
     const pt = toCanvas(clientX, clientY); if (!pt) return;
+    if (stateRef.current.stage >= 2) currentPointsRef.current.push({ x: pt.nx, y: pt.ny });
     const ctx = writeRef.current.getContext('2d');
     ctx.beginPath();
     ctx.moveTo(lastRef.current.x, lastRef.current.y);
@@ -796,7 +985,15 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     if (!ps || ps.length === 0) return;
     if (st >= 2) {
       // 自力モード：採点しないでインクをそのまま残す（「できた」ボタンで採点）
-      setCurrentStroke(s => s + 1);
+      // タップだけの誤入力（点列が短すぎる）は画として数えない
+      const pts = currentPointsRef.current || [];
+      let span = 0;
+      for (let i = 1; i < pts.length; i++) span += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+      if (pts.length >= 2 && span > 0.02) {
+        userStrokesRef.current.push({ points: pts });
+        setCurrentStroke(s => s + 1);
+      }
+      currentPointsRef.current = [];
       return;
     }
     const target = getStartEndPoints(ps[cs]).e;
@@ -860,24 +1057,33 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   function submitFreeWrite() {
     const { paths: ps, char: ch, stage: st } = stateRef.current;
     if (st < 2 || !ps || ps.length === 0 || !writeRef.current) return;
-    if (currentStroke === 0) {
+    const userStrokes = userStrokesRef.current;
+    if (!userStrokes || userStrokes.length === 0) {
       setMascotMsg('まだ なにも かいてないよ！'); setMascotMood('sad');
       return;
     }
-    const score = scoreDrawing(writeRef.current, ps);
-    const passed = score >= 60;
-    setScoreInfo({ score, passed });
-    if (passed) playFanfare(); else playPingPong();
-    if (voiceOn) {
-      setTimeout(() => speakText(`${score}てん`, voiceOn), 150);
+    // 画数チェック（絶対条件）：違うときは採点せず、かきじゅんからやり直し
+    if (userStrokes.length !== ps.length) {
+      playBuzzer();
+      setMascotMsg(`かくすうが ちがうよ！（${userStrokes.length}かく → ${ps.length}かく だよ）`);
+      setMascotMood('sad');
+      if (voiceOn) setTimeout(() => speakText('かくすうが ちがいます。もういちど かきじゅんから みてみよう', voiceOn), 150);
+      onMistakeStreakReset && onMistakeStreakReset(ch);
+      onStrokeCountMismatch && onStrokeCountMismatch(ch);
+      // ステージダウン effect でキャンバス・ストローク履歴がクリアされる
+      return;
     }
-    onRoundComplete(ch, passed);
-    // 少し見せたあと、つぎの挑戦のためにキャンバスをクリア
-    setTimeout(() => {
-      setScoreInfo(null);
-      setCurrentStroke(0); setMistakes(0); setHasMistaken(false);
-      clearAll();
-    }, 2400);
+    const result = scoreHandwriting(userStrokes, ps);
+    if (!result) return;
+    setScoreInfo(result);
+    if (result.passed) playFanfare(); else playPingPong();
+    if (voiceOn) setTimeout(() => speakText(`${result.total}てん`, voiceOn), 150);
+    onRoundComplete(ch, result.passed);
+  }
+  function closeScorePopup() {
+    setScoreInfo(null);
+    setCurrentStroke(0); setMistakes(0); setHasMistaken(false);
+    clearAll();
   }
 
   /* --- 始点ヒント（赤い点滅マーカー） --- */
@@ -979,7 +1185,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
           onClose={() => { setShowAnime(false); onAnimeViewed && onAnimeViewed(char); }}/>
       )}
       {isCleared && <ExcellentPopup/>}
-      {scoreInfo && <ScorePopup score={scoreInfo.score} passed={scoreInfo.passed}/>}
+      {scoreInfo && <ScorePopup result={scoreInfo} onClose={closeScorePopup}/>}
       {stageUp && <StageUpPopup info={stageUp} onClose={() => setStageUp(null)} onGoToWords={onGoToWords}/>}
     </div>
   );
@@ -1181,31 +1387,67 @@ function ExcellentPopup() {
 /* ──────────────────────────────────────────────────────────────
    15.3. <ScorePopup> ── 自力書きの採点結果
    ────────────────────────────────────────────────────────────── */
-function ScorePopup({ score, passed }) {
+function ScorePopup({ result, onClose }) {
   const [show, setShow] = useState(false);
+  const [detail, setDetail] = useState(false);
+  const close = useCallback(() => {
+    setShow(false);
+    setTimeout(() => onClose && onClose(), 350);
+  }, [onClose]);
   useEffect(() => {
     setShow(true);
-    const t = setTimeout(() => setShow(false), 2200);
-    return () => clearTimeout(t);
-  }, []);
-  const stars = score >= 90 ? '⭐⭐⭐' : score >= 70 ? '⭐⭐' : score >= 50 ? '⭐' : '✏️';
-  const comment = score >= 90 ? 'すばらしい！'
-                : score >= 70 ? 'じょうず！'
-                : score >= 50 ? 'いい かんじ！'
-                : 'もう いっかい！';
+    if (!detail) {
+      const t = setTimeout(close, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [detail, close]);
+
+  const { total, breakdown = [], comment, passed } = result || {};
+  const stars = total >= 90 ? '⭐⭐⭐' : total >= 70 ? '⭐⭐' : total >= 50 ? '⭐' : '✏️';
   const color = passed
     ? 'from-amber-100 via-yellow-50 to-amber-100 border-amber-400 text-amber-700'
     : 'from-sky-100 via-slate-50 to-sky-100 border-sky-400 text-sky-700';
+  const iconFor = (s) => s === 'good' ? '💯' : s === 'ok' ? '◯' : '△';
+
   return (
-    <div className={`fixed inset-0 z-[170] pointer-events-none flex items-center justify-center transition-all duration-400 ${
-      show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
-    }`}>
-      <div className={`bg-gradient-to-br ${color} px-6 md:px-10 py-4 md:py-6 rounded-3xl shadow-2xl border-4 text-center -rotate-2`}>
+    <div
+      className={`fixed inset-0 z-[170] flex items-center justify-center transition-all duration-400 ${
+        show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+      } ${detail ? 'bg-black/30 pointer-events-auto' : 'pointer-events-none'}`}
+      onClick={detail ? close : undefined}
+    >
+      <div className={`bg-gradient-to-br ${color} px-6 md:px-10 py-4 md:py-6 rounded-3xl shadow-2xl border-4 text-center ${detail ? '' : '-rotate-2'} pointer-events-auto max-w-md mx-3`}
+           onClick={(e) => e.stopPropagation()}>
         <div className="text-lg md:text-2xl font-black opacity-80">{stars} {comment}</div>
         <div className="mt-1 flex items-baseline justify-center gap-1">
-          <span className="text-5xl md:text-7xl font-black tracking-tight">{score}</span>
+          <span className="text-5xl md:text-7xl font-black tracking-tight">{total}</span>
           <span className="text-xl md:text-2xl font-black opacity-80">/100てん</span>
         </div>
+        {!detail && (
+          <button onClick={(e) => { e.stopPropagation(); setDetail(true); }}
+            className="mt-3 px-4 py-1.5 rounded-full bg-white/80 border-2 border-current text-xs md:text-sm font-black active:scale-95 transition-all">
+            🔍 くわしく みる
+          </button>
+        )}
+        {detail && (
+          <div className="mt-3 bg-white/85 rounded-2xl p-3 text-left text-slate-700">
+            <div className="text-[10px] md:text-xs font-black opacity-70 mb-2 text-center">うちわけ</div>
+            <ul className="space-y-1.5">
+              {breakdown.map(b => (
+                <li key={b.key} className="flex items-center gap-2 text-xs md:text-sm">
+                  <span className="text-base md:text-lg w-6 text-center">{iconFor(b.status)}</span>
+                  <span className="font-black w-24 md:w-32 shrink-0">{b.label}</span>
+                  <span className="font-black tabular-nums w-10 md:w-12 shrink-0 text-right">{b.score}/{b.max}</span>
+                  <span className="text-[10px] md:text-xs opacity-80 flex-1">{b.advice}</span>
+                </li>
+              ))}
+            </ul>
+            <button onClick={(e) => { e.stopPropagation(); close(); }}
+              className="mt-3 w-full px-4 py-1.5 rounded-full bg-slate-100 border-2 border-slate-300 text-xs md:text-sm font-black text-slate-600 active:scale-95 transition-all">
+              とじる
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1582,7 +1824,7 @@ function ResetModal({ onCancel, onConfirm }) {
 /* ──────────────────────────────────────────────────────────────
    21. <MainBoard>
    ────────────────────────────────────────────────────────────── */
-function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, onRoundComplete, onMistakeStreakReset, practiceCount, voiceOn, onGoToWords }) {
+function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, practiceCount, voiceOn, onGoToWords }) {
   const [currentChar, setCurrentChar] = useState(null);
   const [paths, setPaths] = useState(null);
   const [playMode, setPlayMode] = useState('free');
@@ -1643,6 +1885,7 @@ function MainBoard({ kanaMode, setKanaMode, progress, mastered, onAnimeViewed, o
           onAnimeViewed={onAnimeViewed}
           onRoundComplete={onRoundComplete}
           onMistakeStreakReset={onMistakeStreakReset}
+          onStrokeCountMismatch={onStrokeCountMismatch}
           onNext={nextChar} playMode={playMode}
           practiceCount={practiceCount} voiceOn={voiceOn}
           onGoToWords={onGoToWords}/>
@@ -1749,6 +1992,16 @@ function App() {
     });
   }, []);
 
+  // 画数が一致しなかったとき：採点せず、かきじゅんアニメ→なぞり書きのサイクルへ戻す
+  const onStrokeCountMismatch = useCallback((char) => {
+    if (!char) return;
+    setProgress(prev => {
+      const cur = prev[char];
+      if (!cur) return prev;
+      return { ...prev, [char]: { ...cur, stage: 0, traced: 0, freeStreak: 0, sawAnime: false } };
+    });
+  }, []);
+
   const addWord = useCallback((w) => {
     setWords(prev => [...prev, { id: Date.now() + Math.random(), ...w, date: Date.now() }]);
     playPickup();
@@ -1796,6 +2049,7 @@ function App() {
             onAnimeViewed={onAnimeViewed}
             onRoundComplete={onRoundComplete}
             onMistakeStreakReset={onMistakeStreakReset}
+            onStrokeCountMismatch={onStrokeCountMismatch}
             practiceCount={practiceCount} voiceOn={voiceOn}
             onGoToWords={() => setView('words')}/>
         ) : (
