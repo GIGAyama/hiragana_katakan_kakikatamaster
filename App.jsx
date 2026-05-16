@@ -1793,12 +1793,13 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-3" onClick={onCancel}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-amber-300 p-4 md:p-6 max-w-lg w-full max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-3">
+      <div className="bg-white rounded-3xl shadow-2xl border-4 border-amber-300 max-w-lg w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center px-4 md:px-6 pt-4 md:pt-6 pb-3 shrink-0">
           <h3 className="font-black text-lg text-amber-700 flex items-center gap-2"><IconPlus size={20}/> ことばを つくろう</h3>
           <button onClick={onCancel} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95"><IconX size={16}/></button>
         </div>
 
+        <div className="px-4 md:px-6 overflow-y-auto flex-1 min-h-0">
         <div className="bg-amber-50 rounded-2xl border-2 border-amber-200 p-3 md:p-4 mb-3 flex items-center gap-3 min-h-[80px]">
           <span className="text-4xl md:text-5xl">{emoji}</span>
           <span className="flex-1 text-2xl md:text-3xl font-black text-slate-700 break-all">
@@ -1867,7 +1868,9 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
           </div>
         </div>
 
-        <div className="flex gap-2">
+        </div>
+
+        <div className="flex gap-2 px-4 md:px-6 pt-3 pb-4 md:pb-6 border-t border-amber-100 bg-white rounded-b-3xl shrink-0">
           <button onClick={onCancel}
             className="flex-1 py-2.5 rounded-xl font-black text-sm bg-slate-100 text-slate-500 shadow-sm border-b-4 border-slate-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2">やめる</button>
           <button disabled={!canSave} onClick={() => onSave({ text, emoji, kanaMode })}
