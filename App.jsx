@@ -56,6 +56,54 @@ const WORD_HINTS_KATA = [
 ];
 const EMOJI_CHOICES = ['😀','🍎','🐶','🐱','🌸','⭐','🌈','🍰','🚗','⚽','🎈','💧','🌙','☀️','🦋','🐟','🍓','🍙','🚀','🎵'];
 
+// コンピュータがしりとりで使う単語リスト（ひらがな）
+const SHIRITORI_CPU_WORDS = [
+  {w:'あり',e:'🐜'},{w:'あひる',e:'🦆'},{w:'あさ',e:'🌅'},{w:'あき',e:'🍂'},{w:'あかい',e:'❤️'},
+  {w:'いか',e:'🦑'},{w:'いちご',e:'🍓'},{w:'いえ',e:'🏠'},{w:'いし',e:'🪨'},{w:'いもうと',e:'👧'},
+  {w:'うし',e:'🐄'},{w:'うちわ',e:'🪭'},{w:'うさぎ',e:'🐰'},{w:'うた',e:'🎵'},{w:'うで',e:'💪'},
+  {w:'えき',e:'🚉'},{w:'えんぴつ',e:'✏️'},{w:'えほん',e:'📚'},{w:'えび',e:'🦐'},{w:'えいが',e:'🎬'},
+  {w:'おに',e:'👹'},{w:'おかし',e:'🍰'},{w:'おつき',e:'🌙'},{w:'おはな',e:'🌺'},{w:'おおかみ',e:'🐺'},
+  {w:'かに',e:'🦀'},{w:'かめ',e:'🐢'},{w:'かさ',e:'☂️'},{w:'かえる',e:'🐸'},{w:'かぜ',e:'💨'},{w:'かわ',e:'🏞️'},
+  {w:'きつね',e:'🦊'},{w:'きのこ',e:'🍄'},{w:'きりん',e:'🦒'},{w:'きく',e:'🌼'},{w:'きじ',e:'🐦'},
+  {w:'くじら',e:'🐋'},{w:'くり',e:'🌰'},{w:'くるま',e:'🚗'},{w:'くも',e:'☁️'},{w:'くさ',e:'🌿'},
+  {w:'けむり',e:'💨'},{w:'けいと',e:'🧶'},{w:'けが',e:'🩹'},{w:'けむし',e:'🐛'},
+  {w:'こうもり',e:'🦇'},{w:'こども',e:'👶'},{w:'こうえん',e:'🌳'},{w:'こおり',e:'🧊'},{w:'こま',e:'🪀'},{w:'こころ',e:'💗'},
+  {w:'さかな',e:'🐟'},{w:'さる',e:'🐒'},{w:'さんぽ',e:'🚶'},{w:'さくら',e:'🌸'},{w:'さとう',e:'🍬'},{w:'さむい',e:'🥶'},
+  {w:'しか',e:'🦌'},{w:'しろ',e:'🏰'},{w:'しお',e:'🧂'},{w:'したぎ',e:'👕'},{w:'しんかんせん',e:'🚄'},
+  {w:'すずめ',e:'🐦'},{w:'すみれ',e:'🌸'},{w:'すいか',e:'🍉'},{w:'すもう',e:'🤼'},{w:'すな',e:'🏖️'},{w:'すき',e:'❤️'},
+  {w:'せみ',e:'🦟'},{w:'せかい',e:'🌍'},{w:'せんせい',e:'👨‍🏫'},{w:'せっけん',e:'🧼'},{w:'せわ',e:'🫂'},
+  {w:'そら',e:'🌌'},{w:'そうじ',e:'🧹'},{w:'そと',e:'🌿'},{w:'そり',e:'🛷'},{w:'そば',e:'🍜'},
+  {w:'たこ',e:'🐙'},{w:'たぬき',e:'🦝'},{w:'たまご',e:'🥚'},{w:'たき',e:'💦'},{w:'たいよう',e:'☀️'},{w:'たか',e:'🦅'},
+  {w:'ちょう',e:'🦋'},{w:'ちきゅう',e:'🌍'},{w:'ちゃわん',e:'🍵'},{w:'ちから',e:'💪'},
+  {w:'つき',e:'🌙'},{w:'つる',e:'🦢'},{w:'つみき',e:'🧱'},{w:'つばさ',e:'🪶'},{w:'つち',e:'🌱'},{w:'つゆ',e:'💧'},
+  {w:'てんき',e:'⛅'},{w:'てがみ',e:'✉️'},{w:'てんとう',e:'🐞'},{w:'てつ',e:'⚙️'},{w:'てら',e:'⛩️'},
+  {w:'とり',e:'🐦'},{w:'とら',e:'🐯'},{w:'とまと',e:'🍅'},{w:'とうふ',e:'🫙'},{w:'とかげ',e:'🦎'},{w:'ともだち',e:'👫'},
+  {w:'なみ',e:'🌊'},{w:'なし',e:'🍐'},{w:'なつ',e:'☀️'},{w:'なまこ',e:'🦑'},{w:'なわ',e:'🪢'},
+  {w:'にじ',e:'🌈'},{w:'にわ',e:'🌿'},{w:'にんじん',e:'🥕'},{w:'にく',e:'🥩'},{w:'にわとり',e:'🐔'},{w:'にほん',e:'🎌'},
+  {w:'ぬの',e:'🧵'},{w:'ぬいぐるみ',e:'🧸'},{w:'ぬりえ',e:'🖍️'},
+  {w:'ねこ',e:'🐱'},{w:'ねずみ',e:'🐭'},{w:'ねんど',e:'🎨'},{w:'ねむい',e:'😴'},
+  {w:'のり',e:'🌿'},{w:'のはら',e:'🌾'},{w:'のこぎり',e:'🪚'},{w:'のみもの',e:'🥤'},
+  {w:'はな',e:'🌺'},{w:'はと',e:'🕊️'},{w:'はし',e:'🌉'},{w:'はる',e:'🌸'},{w:'はりねずみ',e:'🦔'},{w:'はやし',e:'🌲'},
+  {w:'ひよこ',e:'🐥'},{w:'ひつじ',e:'🐑'},{w:'ひこうき',e:'✈️'},{w:'ひかり',e:'💡'},{w:'ひまわり',e:'🌻'},{w:'ひみつ',e:'🤫'},
+  {w:'ふね',e:'🚢'},{w:'ふくろう',e:'🦉'},{w:'ふうせん',e:'🎈'},{w:'ふゆ',e:'❄️'},{w:'ふで',e:'🖌️'},{w:'ふじさん',e:'🗻'},
+  {w:'へび',e:'🐍'},{w:'へや',e:'🏠'},{w:'へいわ',e:'☮️'},{w:'へそ',e:'🫙'},
+  {w:'ほし',e:'⭐'},{w:'ほたる',e:'✨'},{w:'ほおずき',e:'🏮'},{w:'ほんや',e:'📚'},{w:'ほね',e:'🦴'},
+  {w:'まつ',e:'🌲'},{w:'まくら',e:'🛏️'},{w:'まめ',e:'🫘'},{w:'まち',e:'🏙️'},{w:'まいにち',e:'📅'},{w:'まぐろ',e:'🐟'},
+  {w:'みず',e:'💧'},{w:'みかん',e:'🍊'},{w:'みつばち',e:'🐝'},{w:'みち',e:'🛣️'},{w:'みそしる',e:'🍲'},{w:'みんな',e:'👥'},
+  {w:'むし',e:'🐛'},{w:'むらさき',e:'🔮'},{w:'むすび',e:'🍙'},{w:'むかし',e:'📜'},{w:'むぎ',e:'🌾'},
+  {w:'めだか',e:'🐟'},{w:'めがね',e:'👓'},{w:'めがみ',e:'👸'},{w:'めし',e:'🍚'},{w:'めいろ',e:'🗺️'},
+  {w:'もも',e:'🍑'},{w:'もり',e:'🌲'},{w:'もぐら',e:'🐭'},{w:'もち',e:'🍡'},{w:'もくば',e:'🎠'},{w:'もみじ',e:'🍁'},
+  {w:'やすみ',e:'😴'},{w:'やま',e:'⛰️'},{w:'やね',e:'🏠'},{w:'やかん',e:'🫖'},{w:'やど',e:'🏨'},
+  {w:'ゆき',e:'❄️'},{w:'ゆび',e:'☝️'},{w:'ゆうひ',e:'🌅'},{w:'ゆかた',e:'👘'},{w:'ゆめ',e:'💭'},{w:'ゆか',e:'🪵'},
+  {w:'よる',e:'🌙'},{w:'よこ',e:'↔️'},{w:'よつば',e:'🍀'},{w:'よみもの',e:'📖'},
+  {w:'らいおん',e:'🦁'},{w:'らっこ',e:'🦦'},{w:'らくだ',e:'🐪'},{w:'らくがき',e:'🖍️'},
+  {w:'りんご',e:'🍎'},{w:'りす',e:'🐿️'},{w:'りゅう',e:'🐉'},{w:'りか',e:'🔬'},
+  {w:'るすばん',e:'🔐'},{w:'るりいろ',e:'💙'},
+  {w:'れもん',e:'🍋'},{w:'れんこん',e:'🥗'},{w:'れっしゃ',e:'🚂'},{w:'れいぞうこ',e:'🧊'},{w:'れんしゅう',e:'✏️'},
+  {w:'ろうそく',e:'🕯️'},{w:'ろば',e:'🫏'},{w:'ろけっと',e:'🚀'},{w:'ろうか',e:'🏫'},
+  {w:'わに',e:'🐊'},{w:'わかめ',e:'🌿'},{w:'わたあめ',e:'🍭'},{w:'わかば',e:'🌱'},{w:'わらい',e:'😄'},{w:'わすれもの',e:'🎒'},
+];
+
 // ★カスタマイズポイント: レベル（しょうごう）
 const LEVELS = [
   { min:  0, title: 'みならい',       icon: '🌱', color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
@@ -667,6 +715,10 @@ function Header({ view, setView, mastered, onReset, onOpenBadges, streak, voiceO
           className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
             view === 'words' ? 'bg-gradient-to-br from-pink-400 to-violet-500 text-white shadow-md' : 'text-amber-700 hover:bg-amber-100'
           }`}><IconBook size={16}/> ことばずかん</button>
+        <button onClick={() => setView('shiritori')}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
+            view === 'shiritori' ? 'bg-gradient-to-br from-sky-400 to-blue-500 text-white shadow-md' : 'text-amber-700 hover:bg-amber-100'
+          }`}>🎮 しりとり</button>
       </div>
 
       {/* 右：ステータス類 */}
@@ -715,13 +767,17 @@ function ModeTabsMobile({ view, setView }) {
   return (
     <div className="sm:hidden flex bg-white rounded-full p-1 shadow-sm border border-amber-100 mx-3 mt-2 relative z-10">
       <button onClick={() => setView('practice')}
-        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
+        className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full text-xs font-black transition-all active:scale-95 ${
           view === 'practice' ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow' : 'text-amber-700'
-        }`}><IconPencil size={14}/> もじをかく</button>
+        }`}><IconPencil size={13}/> もじをかく</button>
       <button onClick={() => setView('words')}
-        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-full text-sm font-black transition-all active:scale-95 ${
+        className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full text-xs font-black transition-all active:scale-95 ${
           view === 'words' ? 'bg-gradient-to-br from-pink-400 to-violet-500 text-white shadow' : 'text-amber-700'
-        }`}><IconBook size={14}/> ことばずかん</button>
+        }`}><IconBook size={13}/> ことばずかん</button>
+      <button onClick={() => setView('shiritori')}
+        className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full text-xs font-black transition-all active:scale-95 ${
+          view === 'shiritori' ? 'bg-gradient-to-br from-sky-400 to-blue-500 text-white shadow' : 'text-amber-700'
+        }`}>🎮 しりとり</button>
     </div>
   );
 }
@@ -1677,6 +1733,351 @@ function AchievementsModal({ earned, mastered, words, streak, onClose }) {
 /* ──────────────────────────────────────────────────────────────
    18. <WordCollection> ── ことばあつめ
    ────────────────────────────────────────────────────────────── */
+/* ──────────────────────────────────────────────────────────────
+   17b. <WordTown> ── ことばタウン（言葉が増えるとまちが育つ）
+   ────────────────────────────────────────────────────────────── */
+function WordTown({ wordCount }) {
+  const STAGES = [
+    { at:1,  emoji:'🌱', name:'くさはら'  },
+    { at:5,  emoji:'🏠', name:'おうち'    },
+    { at:10, emoji:'🌳', name:'こうえん'  },
+    { at:20, emoji:'🏪', name:'おみせ'    },
+    { at:35, emoji:'🏫', name:'がっこう'  },
+    { at:50, emoji:'🏰', name:'おしろ'    },
+  ];
+  const next = STAGES.find(s => wordCount < s.at);
+  if (wordCount === 0) return null;
+  const progress = next ? Math.round((wordCount / next.at) * 100) : 100;
+
+  return (
+    <div className="bg-gradient-to-b from-sky-100 to-emerald-50 border-2 border-sky-200 rounded-2xl p-3 mb-3 shrink-0">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-lg kkm-float">🏙️</span>
+          <span className="font-black text-sky-800 text-sm">ことばタウン</span>
+        </div>
+        <span className="text-[10px] font-black text-sky-600 bg-white/60 rounded-full px-2 py-0.5">
+          {wordCount}こ のことばが まちを そだてた！
+        </span>
+      </div>
+
+      <div className="relative rounded-xl overflow-hidden" style={{height:'72px', background:'linear-gradient(to bottom,#bfdbfe 0%,#93c5fd 55%,#4ade80 78%,#16a34a 100%)'}}>
+        <span className="absolute text-sm opacity-80" style={{top:'4px',left:'8px'}}>☁️</span>
+        <span className="absolute text-xs opacity-70" style={{top:'9px',left:'64px'}}>☁️</span>
+        <span className="absolute text-sm opacity-60" style={{top:'3px',right:'18px'}}>☁️</span>
+
+        <div className="absolute bottom-6 left-3 flex gap-2 items-end">
+          {STAGES.map((s, i) => (
+            <div key={i} title={s.name}
+              className={`flex flex-col items-center transition-all duration-700 ${wordCount >= s.at ? 'opacity-100 scale-100' : 'opacity-20 scale-75'}`}>
+              <span className="text-2xl leading-none">{s.emoji}</span>
+            </div>
+          ))}
+          {next && (
+            <div className="flex flex-col items-center opacity-20">
+              <span className="text-xl">🔒</span>
+            </div>
+          )}
+        </div>
+
+        <div className="absolute bottom-1.5 left-3 right-3 h-1.5 bg-white/30 rounded-full">
+          <div className="h-full bg-white/80 rounded-full transition-all duration-700" style={{width:`${progress}%`}}/>
+        </div>
+      </div>
+
+      <p className="text-[11px] font-black text-center mt-1.5">
+        {next
+          ? <span className="text-sky-700">あと <span className="text-sky-900 text-sm">{next.at - wordCount}</span>こ で {next.emoji}<span className="text-sky-800">{next.name}</span> が できるよ！</span>
+          : <span className="kkm-text-rainbow">🏆 さいこう！ でんせつの まちが かんせいしたよ！</span>
+        }
+      </p>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   17c. <ShiritoriGame> ── しりとりゲーム
+   ────────────────────────────────────────────────────────────── */
+function ShiritoriGame({ words, voiceOn }) {
+  const SMALL_TO_LARGE = {'ぁ':'あ','ぃ':'い','ぅ':'う','ぇ':'え','ぉ':'お','っ':'つ','ゃ':'や','ゅ':'ゆ','ょ':'よ','ゎ':'わ'};
+  function getLastChar(word) {
+    if (!word || word.length === 0) return '';
+    const last = word[word.length - 1];
+    return SMALL_TO_LARGE[last] || last;
+  }
+
+  const [gameState, setGameState] = useState('idle');
+  const [chain, setChain] = useState([]);
+  const [usedWords, setUsedWords] = useState(new Set());
+  const [currentChar, setCurrentChar] = useState(null);
+  const [thinking, setThinking] = useState(false);
+  const [bestChain, setBestChain] = useState(() => {
+    try { return parseInt(localStorage.getItem('kkm_siri_best') || '0'); } catch { return 0; }
+  });
+  const chainRef = useRef(null);
+
+  const hiraganaWords = words.filter(w => w.kanaMode === 'hiragana');
+
+  function updateBest(len) {
+    if (len > bestChain) {
+      setBestChain(len);
+      try { localStorage.setItem('kkm_siri_best', String(len)); } catch {}
+    }
+  }
+
+  function startGame() {
+    const playerFirstChars = new Set(hiraganaWords.map(w => w.text[0]));
+    let startOptions = SHIRITORI_CPU_WORDS.filter(w => {
+      const last = getLastChar(w.w);
+      return playerFirstChars.has(last) && last !== 'ん';
+    });
+    if (startOptions.length === 0) startOptions = SHIRITORI_CPU_WORDS.filter(w => getLastChar(w.w) !== 'ん');
+    if (startOptions.length === 0) startOptions = SHIRITORI_CPU_WORDS;
+
+    const start = startOptions[Math.floor(Math.random() * startOptions.length)];
+    const lastChar = getLastChar(start.w);
+    const initialChain = [{ word: start.w, emoji: start.e, isPlayer: false }];
+
+    setChain(initialChain);
+    setUsedWords(new Set([start.w]));
+    setCurrentChar(lastChar);
+    setGameState('playing');
+    setThinking(false);
+    speakText(start.w, voiceOn);
+  }
+
+  function playerPlay(wordObj) {
+    if (gameState !== 'playing' || thinking) return;
+
+    const newUsed = new Set([...usedWords, wordObj.text]);
+    const lastChar = getLastChar(wordObj.text);
+    const newChain = [...chain, { word: wordObj.text, emoji: wordObj.emoji, isPlayer: true }];
+
+    setChain(newChain);
+    setUsedWords(newUsed);
+    speakText(wordObj.text, voiceOn);
+
+    if (lastChar === 'ん') {
+      updateBest(newChain.length);
+      setGameState('lost');
+      return;
+    }
+
+    setThinking(true);
+    setTimeout(() => {
+      const available = SHIRITORI_CPU_WORDS.filter(w => w.w[0] === lastChar && !newUsed.has(w.w));
+      if (available.length === 0) {
+        updateBest(newChain.length);
+        setGameState('won');
+        setThinking(false);
+        playFanfare();
+        burstConfetti();
+        return;
+      }
+      const pick = available[Math.floor(Math.random() * available.length)];
+      const newUsed2 = new Set([...newUsed, pick.w]);
+      const compLastChar = getLastChar(pick.w);
+      const newChain2 = [...newChain, { word: pick.w, emoji: pick.e, isPlayer: false }];
+
+      setChain(newChain2);
+      setUsedWords(newUsed2);
+      speakText(pick.w, voiceOn);
+      setThinking(false);
+
+      if (compLastChar === 'ん') {
+        updateBest(newChain2.length);
+        setGameState('won');
+        playFanfare();
+        burstConfetti();
+        return;
+      }
+      setCurrentChar(compLastChar);
+    }, 1200);
+  }
+
+  function forfeit() {
+    updateBest(chain.length);
+    setGameState('lost');
+    setThinking(false);
+  }
+
+  useEffect(() => {
+    if (chainRef.current) chainRef.current.scrollTop = chainRef.current.scrollHeight;
+  }, [chain, thinking]);
+
+  const playableWords = gameState === 'playing' && currentChar && !thinking
+    ? hiraganaWords.filter(w => w.text[0] === currentChar && !usedWords.has(w.text))
+    : [];
+
+  return (
+    <div className="flex-1 p-3 md:p-4 min-h-0 overflow-hidden flex flex-col gap-3">
+      <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-sky-200 p-3 md:p-5 flex flex-col h-full overflow-hidden gap-3">
+
+        <div className="flex items-center justify-between shrink-0">
+          <h2 className="flex items-center gap-2 text-lg md:text-xl font-black">
+            <span className="kkm-float text-2xl">🎮</span>
+            <span className="kkm-text-rainbow">しりとり ゲーム</span>
+          </h2>
+          {bestChain > 0 && (
+            <div className="text-xs font-black text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+              🏆 さいこう <span className="text-amber-900 text-sm">{bestChain}</span>こ
+            </div>
+          )}
+        </div>
+
+        {gameState === 'idle' && hiraganaWords.length === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="text-5xl">😢</div>
+            <p className="font-black text-slate-700 text-base">ひらがなの ことばが まだ ないよ！</p>
+            <p className="text-sm text-slate-500">「ことばずかん」タブで ことばを あつめてから<br/>あそんでね！</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 font-black">
+              💡 ことばが おおいほど しりとりで つよくなるよ！
+            </div>
+          </div>
+        )}
+
+        {gameState === 'idle' && hiraganaWords.length > 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="text-6xl kkm-float">🎮</div>
+            <p className="font-black text-slate-700 text-lg">コンピュータと しりとり しよう！</p>
+            <div className="bg-sky-50 border-2 border-sky-200 rounded-2xl p-4 text-sm text-sky-800 text-left max-w-xs">
+              <p className="font-black mb-2 text-center">📖 あそびかた</p>
+              <ul className="space-y-1.5 list-none">
+                <li>① コンピュータが さいしょの ことばを いう</li>
+                <li>② その さいごの もじから はじまる<br/><strong className="text-sky-900">あつめた ことば</strong>を えらぼう！</li>
+                <li>③ 「ん」で おわったら まけ</li>
+                <li>④ コンピュータが こたえられなかったら かち！</li>
+              </ul>
+            </div>
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl p-3 text-sm font-black text-amber-800 max-w-xs w-full">
+              ✨ あなたの てふだ: <span className="text-amber-900 text-base">{hiraganaWords.length}</span>こ のことば
+              <div className="text-xs font-normal text-amber-600 mt-0.5">ことばが おおいほど つよくなれるよ！</div>
+            </div>
+            <button onClick={startGame}
+              className="px-10 py-3.5 rounded-2xl font-black text-xl bg-gradient-to-r from-sky-400 to-blue-500 text-white shadow-lg border-b-4 border-blue-700 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2">
+              🎮 スタート！
+            </button>
+          </div>
+        )}
+
+        {gameState === 'playing' && (
+          <>
+            <div ref={chainRef} className="flex-1 overflow-y-auto space-y-2 min-h-0 bg-slate-50/70 rounded-xl p-2 border border-slate-200">
+              {chain.map((entry, i) => (
+                <div key={i} className={`flex items-end gap-2 ${entry.isPlayer ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <span className="text-xs text-slate-400 font-black shrink-0 mb-0.5">{entry.isPlayer ? 'あなた' : 'CPU'}</span>
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-black shadow-sm max-w-[65%] ${
+                    entry.isPlayer
+                      ? 'bg-gradient-to-br from-sky-400 to-blue-500 text-white rounded-br-sm'
+                      : 'bg-white border-2 border-slate-200 text-slate-700 rounded-bl-sm'
+                  }`}>
+                    <span className="text-xl shrink-0">{entry.emoji}</span>
+                    <span className="text-base">{entry.word}</span>
+                    {i < chain.length - 1 && (
+                      <span className="text-xs opacity-60 ml-1">→{getLastChar(entry.word)}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {thinking && (
+                <div className="flex items-end gap-2">
+                  <span className="text-xs text-slate-400 font-black">CPU</span>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border-2 border-slate-200 text-slate-400 text-sm font-black rounded-bl-sm">
+                    🤔 かんがえてる...
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {!thinking && currentChar && (
+              <div className="shrink-0 space-y-2">
+                <div className="text-center">
+                  <span className="inline-block bg-sky-100 border-2 border-sky-300 rounded-xl px-4 py-1.5">
+                    <span className="text-2xl font-black text-sky-700">「{currentChar}」</span>
+                    <span className="text-sm text-sky-600 ml-1">から はじまる ことばは？</span>
+                  </span>
+                </div>
+                {playableWords.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {playableWords.map(w => (
+                      <button key={w.id} onClick={() => playerPlay(w)}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-black bg-gradient-to-br from-sky-50 to-blue-50 border-2 border-sky-300 text-sky-800 shadow-sm hover:shadow-md hover:border-sky-400 transition-all active:scale-95">
+                        <span className="text-xl">{w.emoji}</span>
+                        <span className="text-base">{w.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-rose-50 border-2 border-rose-200 rounded-xl p-3 text-center">
+                    <p className="font-black text-rose-700 mb-1">😭「{currentChar}」から はじまる ことばが ないよ！</p>
+                    <p className="text-xs text-rose-500 mb-2">「ことばずかん」で「{currentChar}」から はじまる ことばを あつめよう！</p>
+                    <button onClick={forfeit}
+                      className="px-4 py-1.5 rounded-lg bg-rose-200 text-rose-700 font-black text-sm active:scale-95">まけを みとめる</button>
+                  </div>
+                )}
+                <div className="text-center text-xs text-slate-400 font-black">
+                  てふだ {hiraganaWords.length}こ ／ つなげた {chain.length}こ
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {gameState === 'won' && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="text-7xl kkm-sparkle">🏆</div>
+            <p className="font-black text-2xl text-amber-700">やったね！かった！</p>
+            <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 w-full max-w-xs">
+              <p className="text-sm text-amber-700 font-black mb-2">つなげた ながさ: <span className="text-3xl text-amber-900">{chain.length}</span>こ</p>
+              <div className="flex flex-wrap gap-1 justify-center">
+                {chain.map((e, i) => (
+                  <span key={i} className={`px-2 py-0.5 rounded-full text-xs font-black ${e.isPlayer ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {e.emoji}{e.word}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <button onClick={startGame}
+              className="px-8 py-3 rounded-xl font-black text-lg bg-gradient-to-r from-sky-400 to-blue-500 text-white shadow border-b-4 border-blue-700 transition-all active:scale-95">
+              もう いちど あそぶ
+            </button>
+          </div>
+        )}
+
+        {gameState === 'lost' && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="text-7xl">😢</div>
+            <p className="font-black text-2xl text-slate-700">まけちゃった...</p>
+            <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 w-full max-w-xs">
+              <p className="text-sm text-slate-600 font-black mb-2">つなげた ながさ: <span className="text-3xl text-sky-600">{chain.length}</span>こ</p>
+              <div className="flex flex-wrap gap-1 justify-center">
+                {chain.map((e, i) => (
+                  <span key={i} className={`px-2 py-0.5 rounded-full text-xs font-black ${e.isPlayer ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {e.emoji}{e.word}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {hiraganaWords.length < 15 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-black text-amber-700 max-w-xs">
+                💡 ことばを もっと あつめると つよくなれるよ！<br/>
+                <span className="font-normal text-amber-600">いま {hiraganaWords.length}こ → もくひょう 15こ！</span>
+              </div>
+            )}
+            <button onClick={startGame}
+              className="px-8 py-3 rounded-xl font-black text-lg bg-gradient-to-r from-sky-400 to-blue-500 text-white shadow border-b-4 border-blue-700 transition-all active:scale-95">
+              もう いちど あそぶ
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   18. <WordCollection>
+   ────────────────────────────────────────────────────────────── */
 function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWords, words, onAdd, onDelete, voiceOn }) {
   const [addOpen, setAddOpen] = useState(false);
   const collected = words.filter(w => w.kanaMode === kanaMode);
@@ -1705,6 +2106,8 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
             }`}>カタカナ</button>
         </div>
       </div>
+
+      <WordTown wordCount={words.length}/>
 
       <div className="flex-1 overflow-y-auto bg-amber-50/40 rounded-xl p-3 border border-amber-100 mb-3">
         {collected.length === 0 ? (
@@ -2135,7 +2538,7 @@ function App() {
       <ModeTabsMobile view={view} setView={setView}/>
 
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {view === 'practice' ? (
+        {view === 'practice' && (
           <MainBoard kanaMode={kanaMode} setKanaMode={setKanaMode}
             progress={progress} mastered={mastered}
             onAnimeViewed={onAnimeViewed}
@@ -2144,13 +2547,17 @@ function App() {
             onStrokeCountMismatch={onStrokeCountMismatch}
             practiceCount={practiceCount} voiceOn={voiceOn}
             onGoToWords={() => setView('words')}/>
-        ) : (
+        )}
+        {view === 'words' && (
           <div className="flex-1 p-3 md:p-4 min-h-0 overflow-hidden">
             <WordCollection kanaMode={kanaMode} setKanaMode={setKanaMode}
               progress={progress} mastered={mastered} usableInWords={usableInWords}
               words={words}
               onAdd={addWord} onDelete={deleteWord} voiceOn={voiceOn}/>
           </div>
+        )}
+        {view === 'shiritori' && (
+          <ShiritoriGame words={words} voiceOn={voiceOn}/>
         )}
       </main>
 
