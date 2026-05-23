@@ -261,6 +261,8 @@ function loadInitialProgress() {
     old.forEach(c => {
       initial[c] = { stage: 4, traced: TRACE_REQUIRED, free: FREE_REQUIRED, freeStreak: FREE_REQUIRED, sawAnime: true };
     });
+    // 移行結果を即時に書き戻す。ここで失敗しても次回に再試行されればよい。
+    try { localStorage.setItem(KEY_PROGRESS, JSON.stringify(initial)); } catch (e) {}
     return initial;
   } catch { return {}; }
 }
@@ -289,53 +291,88 @@ const playPickup   = () => { initAudio(); playTone(880, 'sine', 0.1); setTimeout
 const playBadge    = () => { initAudio(); [659.25, 783.99, 987.77, 1318.5].forEach((f, i) => setTimeout(() => playTone(f, 'triangle', 0.3, 0.12), i*120)); };
 
 // 音声よみあげ（Web Speech API）
+// voices ロードが非同期のブラウザでは初回呼び出し時点で空配列が返ることが
+// あるため、null を「キャッシュ未確定」として扱う。`voiceschanged` で再取得。
 let cachedJaVoice = null;
+let voicesResolved = false;
 function getJaVoice() {
   if (cachedJaVoice) return cachedJaVoice;
   if (!window.speechSynthesis) return null;
   const voices = speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) return null; // 未ロード：キャッシュしない
+  voicesResolved = true;
   cachedJaVoice = voices.find(v => v.lang && v.lang.startsWith('ja')) || null;
   return cachedJaVoice;
 }
+// 同じテキストを連打しても無音にならないよう、直前と同じ場合は何もしない。
+// 異なるテキストのときだけ cancel する。
+let lastSpeakText = '';
+let lastSpeakAt = 0;
 function speakText(text, enabled = true) {
   if (!enabled || !voiceEnabled || !text || !window.speechSynthesis) return;
   try {
-    speechSynthesis.cancel();
+    const now = performance.now();
+    // 同一テキストを 250ms 以内に連打したら無視（Safari で無音化するのを防ぐ）
+    if (text === lastSpeakText && now - lastSpeakAt < 250) return;
+    // 別テキストのときだけ、いま喋っている音をキャンセル
+    if (text !== lastSpeakText && speechSynthesis.speaking) speechSynthesis.cancel();
+    lastSpeakText = text; lastSpeakAt = now;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'ja-JP';
     u.rate = 0.9;
     u.pitch = 1.1;
     const v = getJaVoice(); if (v) u.voice = v;
+    u.onend = () => { lastSpeakText = ''; };
+    u.onerror = () => { lastSpeakText = ''; };
     speechSynthesis.speak(u);
   } catch (e) {}
 }
 
+// 触覚フィードバック（対応端末のみ。OFF は voiceEnabled に追従）
+function vibrate(pattern) {
+  if (!voiceEnabled) return;
+  try { navigator.vibrate && navigator.vibrate(pattern); } catch (e) {}
+}
+const hapticTick    = () => vibrate(8);
+const hapticOk      = () => vibrate(12);
+const hapticErr     = () => vibrate([24, 40, 24]);
+const hapticTriumph = () => vibrate([40, 30, 60]);
+
 function burstConfetti() {
   const canvas = document.getElementById('confettiCanvas');
   if (!canvas) return;
+  if (document.hidden) return; // バックグラウンドでは動かさない
   const ctx = canvas.getContext('2d');
-  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  canvas.width  = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const colors = ['#fde68a','#fca5a5','#bae6fd','#a7f3d0','#c7d2fe','#fbcfe8'];
   const particles = Array.from({ length: 80 }, () => ({
-    x: canvas.width/2, y: canvas.height/2,
+    x: cssW/2, y: cssH/2,
     r: Math.random()*8+4,
     dx: Math.random()*12-6, dy: Math.random()*-12-4,
     color: colors[Math.floor(Math.random()*colors.length)],
     tilt: Math.random()*0.07+0.05, ang: 0
   }));
   function render() {
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if (document.hidden) { return; } // タブが隠れたら描画を止める（後でも勝手に戻らない）
+    ctx.clearRect(0,0,cssW,cssH);
     let active = 0;
     particles.forEach(p => {
       p.ang += p.tilt;
       p.y += (Math.cos(p.ang)+1+p.r/2)/2;
       p.x += Math.sin(p.ang)*2 + p.dx;
       p.dy += 0.15; p.y += p.dy;
-      if (p.y <= canvas.height) active++;
+      if (p.y <= cssH) active++;
       ctx.beginPath(); ctx.lineWidth = p.r; ctx.strokeStyle = p.color;
       ctx.moveTo(p.x+p.r, p.y); ctx.lineTo(p.x, p.y+p.r); ctx.stroke();
     });
     if (active > 0) requestAnimationFrame(render);
+    else ctx.clearRect(0,0,cssW,cssH);
   }
   render();
 }
@@ -344,17 +381,33 @@ function burstConfetti() {
    3. KanjiVG
    ────────────────────────────────────────────────────────────── */
 const kanjiPathsCache = {};
+const kanjiFetchInflight = {}; // char -> Promise（同時呼び出しを束ねる）
 async function fetchKanjiVG(char) {
   if (kanjiPathsCache[char]) return kanjiPathsCache[char];
+  if (kanjiFetchInflight[char]) return kanjiFetchInflight[char];
   const hex = char.charCodeAt(0).toString(16).padStart(5, '0');
   const url = `https://cdn.jsdelivr.net/gh/KanjiVG/kanjivg@master/kanji/${hex}.svg`;
-  try {
-    const res = await fetch(url); if (!res.ok) throw new Error();
-    const text = await res.text();
-    const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-    const paths = Array.from(doc.querySelectorAll('path')).map(p => p.getAttribute('d')).filter(Boolean);
-    kanjiPathsCache[char] = paths; return paths;
-  } catch (e) { return null; }
+  // 8 秒のタイムアウトを設けて、固まったネットワークで UI が止まり続けるのを防ぐ
+  const promise = (async () => {
+    try {
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : null;
+      const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+      if (timer) clearTimeout(timer);
+      if (!res.ok) throw new Error('http ' + res.status);
+      const text = await res.text();
+      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      const paths = Array.from(doc.querySelectorAll('path')).map(p => p.getAttribute('d')).filter(Boolean);
+      kanjiPathsCache[char] = paths;
+      return paths;
+    } catch (e) {
+      return null;
+    } finally {
+      delete kanjiFetchInflight[char];
+    }
+  })();
+  kanjiFetchInflight[char] = promise;
+  return promise;
 }
 /* ──────────────────────────────────────────────────────────────
    3.5. 採点ロジック（独自）
@@ -375,15 +428,39 @@ async function fetchKanjiVG(char) {
    ────────────────────────────────────────────────────────────── */
 
 // SVG パス文字列を N 点にサンプリングして [{x,y}] in [0..1] で返す
-function sampleSvgPath(d, n) {
-  if (!d) return [];
+// 計測のたびに body へ <svg> を挿入していたが、レイアウトを誘発するため
+// アプリ寿命を通じて使い回す「画面外の単一の SVG」へ集約する。
+// さらに (d, n) をキーに結果をキャッシュして、同じ文字を何度書いても
+// 一回しか計算しないようにする。
+const __svgMeasureSvg = (() => {
+  if (typeof document === 'undefined') return null;
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '0'); svg.setAttribute('height', '0');
+  svg.style.position = 'absolute';
+  svg.style.left = '-9999px'; svg.style.top = '-9999px';
+  svg.style.visibility = 'hidden';
+  svg.setAttribute('aria-hidden', 'true');
+  // mount 時に body へ挿入（実 DOM に居ないと getTotalLength の結果が
+  // ブラウザによって不正確になる）
+  if (document.body) document.body.appendChild(svg);
+  else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(svg), { once: true });
+  return svg;
+})();
+const __sampleCache = new Map();      // key: `${n}|${d}` → [{x,y}]
+const __startEndCache = new Map();    // key: d → {s:{x,y}, e:{x,y}}
+const __pathLengthCache = new Map();  // key: d → number (109 座標系)
+function sampleSvgPath(d, n) {
+  if (!d || !__svgMeasureSvg) return [];
+  const key = `${n}|${d}`;
+  const cached = __sampleCache.get(key);
+  if (cached) return cached;
+  const svgNS = 'http://www.w3.org/2000/svg';
   const p = document.createElementNS(svgNS, 'path');
   p.setAttribute('d', d);
-  svg.appendChild(p);
-  document.body.appendChild(svg);
+  __svgMeasureSvg.appendChild(p);
   const len = p.getTotalLength();
+  __pathLengthCache.set(d, len);
   const pts = [];
   if (len > 0 && n >= 2) {
     for (let i = 0; i < n; i++) {
@@ -392,7 +469,8 @@ function sampleSvgPath(d, n) {
       pts.push({ x: pt.x / 109, y: pt.y / 109 });
     }
   }
-  document.body.removeChild(svg);
+  __svgMeasureSvg.removeChild(p);
+  __sampleCache.set(key, pts);
   return pts;
 }
 
@@ -628,41 +706,109 @@ function scoreHandwriting(userStrokes, templatePaths) {
 }
 
 function getStartEndPoints(pathStr) {
+  if (!pathStr || !__svgMeasureSvg) return { s: { x: 0, y: 0 }, e: { x: 0, y: 0 } };
+  const cached = __startEndCache.get(pathStr);
+  if (cached) return cached;
   const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
   const p = document.createElementNS(svgNS, 'path');
-  p.setAttribute('d', pathStr); svg.appendChild(p); document.body.appendChild(svg);
+  p.setAttribute('d', pathStr);
+  __svgMeasureSvg.appendChild(p);
   const len = p.getTotalLength();
+  __pathLengthCache.set(pathStr, len);
   const s = p.getPointAtLength(0), e = p.getPointAtLength(len);
-  document.body.removeChild(svg);
-  return { s: { x: s.x/109, y: s.y/109 }, e: { x: e.x/109, y: e.y/109 } };
+  __svgMeasureSvg.removeChild(p);
+  const result = { s: { x: s.x/109, y: s.y/109 }, e: { x: e.x/109, y: e.y/109 } };
+  __startEndCache.set(pathStr, result);
+  return result;
+}
+
+// 1 つのパスの長さだけ知りたい場合（StrokeOrderAnime 用）
+function getPathLength(pathStr) {
+  if (!pathStr || !__svgMeasureSvg) return 0;
+  const cached = __pathLengthCache.get(pathStr);
+  if (cached != null) return cached;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const p = document.createElementNS(svgNS, 'path');
+  p.setAttribute('d', pathStr);
+  __svgMeasureSvg.appendChild(p);
+  const len = p.getTotalLength();
+  __svgMeasureSvg.removeChild(p);
+  __pathLengthCache.set(pathStr, len);
+  return len;
 }
 
 /* ──────────────────────────────────────────────────────────────
    4. カスタムフック
    ────────────────────────────────────────────────────────────── */
+// localStorage の書き込みは保存失敗時にアプリが「黙って進捗を失う」のを防ぐ
+// ため、QuotaExceededError を画面に伝播できるフックを介する。
+let __storageWarnCb = null;
+function setStorageWarnCallback(fn) { __storageWarnCb = fn; }
+function safeLocalStorageSet(key, value) {
+  try { localStorage.setItem(key, value); return true; }
+  catch (e) {
+    if (__storageWarnCb) __storageWarnCb(key, e);
+    return false;
+  }
+}
 function useLocalStorage(key, initial) {
   const [val, setVal] = useState(() => {
     try { const r = localStorage.getItem(key); return r != null ? JSON.parse(r) : initial; }
     catch { return initial; }
   });
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }, [key, val]);
+  useEffect(() => { safeLocalStorageSet(key, JSON.stringify(val)); }, [key, val]);
   return [val, setVal];
 }
 
+// 「きょう」を YYYY-MM-DD（ローカルタイム）で表現する。toDateString は
+// ロケールによって表記が変わり比較が脆い + 日跨ぎ判定のために安定したキー
+// が必要。
+function todayKey(d = new Date()) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function yesterdayKey() {
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  return todayKey(y);
+}
+
 // 連続学習日数（ストリーク）
+// 改善点：
+//  ・toDateString 依存をやめ、ローカル日付キー（YYYY-MM-DD）で安定比較
+//  ・アプリを開いたままの日跨ぎ／スリープ復帰でも streak が伸びる
+//    （visibilitychange と次の真夜中タイマーで再チェック）
 function useStreak() {
   const [state, setState] = useLocalStorage(KEY_STREAK, { count: 0, lastDate: null });
-  // アプリ起動時に今日の日付をチェック
+  const stateRef = useRef(state); stateRef.current = state;
   useEffect(() => {
-    const today = new Date().toDateString();
-    if (state.lastDate === today) return; // 今日もう更新済み
-    const y = new Date(); y.setDate(y.getDate() - 1);
-    const yesterday = y.toDateString();
-    let newCount;
-    if (state.lastDate === yesterday) newCount = (state.count || 0) + 1;
-    else newCount = 1;
-    setState({ count: newCount, lastDate: today });
+    let timer = null;
+    function check() {
+      const today = todayKey();
+      const cur = stateRef.current || { count: 0, lastDate: null };
+      if (cur.lastDate === today) {
+        scheduleNext();
+        return;
+      }
+      const yest = yesterdayKey();
+      const next = (cur.lastDate === yest) ? (cur.count || 0) + 1 : 1;
+      setState({ count: next, lastDate: today });
+      scheduleNext();
+    }
+    function scheduleNext() {
+      // 次の 00:00 + 5 秒に再評価
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1, 0, 0, 5);
+      const ms = Math.max(1000, next.getTime() - now.getTime());
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(check, ms);
+    }
+    const onVis = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVis);
+    check();
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      if (timer) clearTimeout(timer);
+    };
     // eslint-disable-next-line
   }, []);
   return state.count || 0;
@@ -670,7 +816,21 @@ function useStreak() {
 
 // きょうの もじ（毎日変わるデイリーチャレンジ）
 // 清音をまずは優先し、すべてマスターしたら濁音・半濁音・拗音にひろがる
+// 改善：日跨ぎで自動更新するための tick ステートを内蔵
 function useDailyChallenge(kanaMode, mastered) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let timer;
+    function schedule() {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1, 0, 0, 5);
+      timer = setTimeout(() => { setTick(t => t + 1); schedule(); }, Math.max(1000, next.getTime() - now.getTime()));
+    }
+    const onVis = () => { if (!document.hidden) setTick(t => t + 1); };
+    document.addEventListener('visibilitychange', onVis);
+    schedule();
+    return () => { document.removeEventListener('visibilitychange', onVis); clearTimeout(timer); };
+  }, []);
   return useMemo(() => {
     const seion = kanaMode === 'katakana' ? KATA_LIST : HIRA_LIST;
     const all   = kanaMode === 'katakana' ? KATA_ALL_LIST : HIRA_ALL_LIST;
@@ -684,21 +844,78 @@ function useDailyChallenge(kanaMode, mastered) {
     const seed = today.getFullYear()*10000 + (today.getMonth()+1)*100 + today.getDate();
     const idx = seed % pool.length;
     return pool[idx];
-  }, [kanaMode, mastered]);
+    // tick 依存：日跨ぎで再計算
+    // eslint-disable-next-line
+  }, [kanaMode, mastered, tick]);
 }
 
 // 取得済みバッジ管理
-function useAchievements({ mastered, words, streak, earned, setEarned, onNew }) {
+// 改善：earned が同期更新される前に effect が再実行されても二重トーストを
+// 起こさないよう、関数型 setter で差分を計算する。
+function useAchievements({ mastered, words, streak, setEarned, onNew }) {
   useEffect(() => {
     const ctx = { m: mastered, w: words, s: streak };
     const nowEarned = BADGES.filter(b => b.check(ctx)).map(b => b.id);
-    const fresh = nowEarned.filter(id => !earned.includes(id));
-    if (fresh.length > 0) {
-      setEarned(nowEarned);
+    setEarned(prev => {
+      const set = new Set(prev);
+      const fresh = nowEarned.filter(id => !set.has(id));
+      if (fresh.length === 0) return prev;
       fresh.forEach(id => onNew && onNew(BADGES.find(b => b.id === id)));
-    }
+      return nowEarned;
+    });
     // eslint-disable-next-line
   }, [mastered, words, streak]);
+}
+
+// 共有モーダル用フック：Escape、フォーカストラップ、body スクロールロック
+// onClose を渡せば Escape 押下で閉じる。dialog ノードの ref を返す。
+function useModal(onClose) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    // body スクロールロック
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // 直前のフォーカスを保存
+    const prevFocus = document.activeElement;
+    // 初期フォーカス：最初のフォーカス可能要素
+    const focusables = () => Array.from(dialog.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    requestAnimationFrame(() => {
+      const f = focusables();
+      if (f.length > 0) f[0].focus();
+    });
+    function onKey(e) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose && onClose(); return; }
+      if (e.key === 'Tab') {
+        const f = focusables();
+        if (f.length === 0) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = prevOverflow;
+      try { prevFocus && prevFocus.focus && prevFocus.focus(); } catch (e) {}
+    };
+  }, [onClose]);
+  return ref;
+}
+
+// 二重タップ・連打防止：指定ミリ秒以内の再呼び出しを破棄する。
+function useDebouncedAction(fn, delay = 350) {
+  const lastRef = useRef(0);
+  return useCallback((...args) => {
+    const now = performance.now();
+    if (now - lastRef.current < delay) return;
+    lastRef.current = now;
+    return fn(...args);
+  }, [fn, delay]);
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -807,22 +1024,25 @@ function Header({ view, setView, mastered, onReset, onOpenBadges, streak, voiceO
       <div className="flex items-center gap-1.5 md:gap-2 shrink-0 relative z-10">
         <StreakBadge streak={streak}/>
         <LevelBadge masteredCount={mastered.length} onClick={onOpenBadges}/>
-        <button onClick={onOpenBadges} title="ごほうびシール"
-          className="relative w-9 h-9 rounded-full bg-yellow-100 hover:bg-yellow-200 text-yellow-700 flex items-center justify-center transition-all active:scale-95 shadow-sm">
-          <IconTrophy size={18}/>
+        <button onClick={onOpenBadges} title="ごほうびシール" aria-label="ごほうびシール ずかん を ひらく"
+          className="relative w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-yellow-100 hover:bg-yellow-200 text-yellow-700 flex items-center justify-center transition-all active:scale-95 shadow-sm focus:outline-none focus:ring-2 focus:ring-yellow-400">
+          <IconTrophy size={20}/>
           {earnedCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{earnedCount}</span>
+            <span aria-hidden="true" className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{earnedCount}</span>
           )}
         </button>
-        <button onClick={() => setVoiceOn(v => !v)} title="おとを よみあげる"
-          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-sm ${
-            voiceOn ? 'bg-sky-100 text-sky-700 hover:bg-sky-200' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+        <button onClick={() => setVoiceOn(v => !v)}
+          title={voiceOn ? 'おとを オフにする' : 'おとを オンにする'}
+          aria-label={voiceOn ? 'おとを オフにする' : 'おとを オンにする'}
+          aria-pressed={voiceOn}
+          className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all active:scale-95 shadow-sm focus:outline-none focus:ring-2 ${
+            voiceOn ? 'bg-sky-100 text-sky-700 hover:bg-sky-200 focus:ring-sky-400' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 focus:ring-slate-400'
           }`}>
-          {voiceOn ? <IconVolume size={18}/> : <IconVolumeX size={18}/>}
+          {voiceOn ? <IconVolume size={20}/> : <IconVolumeX size={20}/>}
         </button>
-        <button onClick={onReset} title="データをリセット"
-          className="w-9 h-9 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-500 flex items-center justify-center transition-all active:scale-95 shadow-sm">
-          <IconSettings size={18}/>
+        <button onClick={onReset} title="データをリセット" aria-label="れんしゅうデータをリセット"
+          className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-500 flex items-center justify-center transition-all active:scale-95 shadow-sm focus:outline-none focus:ring-2 focus:ring-rose-300">
+          <IconSettings size={20}/>
         </button>
       </div>
     </nav>
@@ -834,10 +1054,10 @@ function Header({ view, setView, mastered, onReset, onOpenBadges, streak, voiceO
    ────────────────────────────────────────────────────────────── */
 function Footer() {
   return (
-    <footer className="shrink-0 w-full bg-white border-t border-slate-200 py-1 text-center text-[10px] md:text-xs text-slate-500 font-bold">
+    <footer className="shrink-0 w-full bg-white border-t border-slate-200 py-1 text-center text-[10px] md:text-xs text-slate-600 font-bold">
       ©2026 ひらがな・カタカナかきかたマスター ・
       <a href="https://note.com/cute_borage86" target="_blank" rel="noopener noreferrer"
-         className="text-amber-600 hover:text-amber-700 hover:underline ml-1">GIGA山</a>
+         className="text-amber-700 hover:text-amber-800 hover:underline ml-1">GIGA山</a>
     </footer>
   );
 }
@@ -991,7 +1211,7 @@ function stageMascotMessage(char, stage, so) {
   return '💮 かんぺき！ もう いちど かいてみる？';
 }
 
-function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, onNext, playMode, practiceCount, voiceOn, onGoToWords }) {
+function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, onNext, playMode, practiceCount, voiceOn, onGoToWords, fetchError, onRetryFetch }) {
   const writeRef = useRef(null);
   const inkRef   = useRef(null);
   const guideRef = useRef(null);
@@ -1010,9 +1230,17 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   // 自力モードでユーザーが書いた画ごとの点列 [{points:[{x,y in 0..1}]}, ...]
   const userStrokesRef   = useRef([]);
   const currentPointsRef = useRef([]);
-  // なぞり書きモード：失敗した画を取り消すために、画の書き始め直前の
-  // writeRef キャンバスをスナップショットしておく
-  const traceSnapshotRef = useRef(null);
+  // なぞり書きモード：失敗した画を取り消すために、書き始め直前の writeRef
+  // の中身を別キャンバスに drawImage で複製しておく（getImageData はretina
+  // で重く、CSP next-tick で iOS が停止することがある）。
+  const traceSnapshotRef = useRef(null); // HTMLCanvasElement
+  // 現在アクティブなポインター ID（一本指でしか書かせない）
+  const activePointerRef = useRef(null);
+  // 一度でも pen 入力を受けたら以後は pen を優先しタッチ系を弾く（パームリジェクション）
+  const sawPenRef = useRef(false);
+  // 高頻度な pointermove を rAF で合流させて 1 フレーム 1 描画に抑える
+  const pendingPointsRef = useRef([]);
+  const rafIdRef = useRef(0);
 
   // ステージから派生するモード
   const stage = stageObj?.stage ?? 0;
@@ -1026,9 +1254,10 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     setCurrentStroke(0); setIsCleared(false);
     setMistakes(0); setHasMistaken(false);
     // 未学習の文字を選んだら、まず書き順アニメを自動再生（スキップ可）
+    // ただし、まだ paths が届いていない／取得失敗のときはアニメを開かない。
     const initialStage = stageObj?.stage ?? 0;
     prevStageRef.current = initialStage;
-    if (char && initialStage === 0) {
+    if (char && initialStage === 0 && paths && paths.length > 0) {
       setShowAnime(true);
     } else {
       setShowAnime(false);
@@ -1049,6 +1278,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
         setStageUp({ from: prev, to: stage });
         playFanfare();
         burstConfetti();
+        hapticTriumph();
         if (voiceOn) setTimeout(() => speakText('よくできました', voiceOn), 200);
       }
       if (stage === 3) {
@@ -1107,24 +1337,92 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   // ステージが変わるとガイドの表示も切り替わる
   useEffect(() => { redrawGuide(); /* eslint-disable-line */ }, [stage]);
 
-  /* --- ネイティブイベント（passive:false でpreventDefault可能に） --- */
+  /* --- 入力：Pointer Events に一本化（マウス/タッチ/ペン）---
+     ・touchstart + onMouseDown の二重発火を解消
+     ・setPointerCapture で指が要素外に出ても追従
+     ・pen を一度でも認識したら以後 touch を無視（手のひら誤入力対策）
+     ・pointermove は rAF にバッチして 60fps に揃える
+     ・preventDefault は touch-action:none と組み合わせてスクロールを抑止 */
   useEffect(() => {
     const canvas = writeRef.current;
     if (!canvas) return;
-    const ts = (e) => { if (e.touches[0]) { e.preventDefault(); doStart(e.touches[0].clientX, e.touches[0].clientY); } };
-    const tm = (e) => { if (e.touches[0]) { e.preventDefault(); doMove(e.touches[0].clientX, e.touches[0].clientY); } };
-    const te = (e) => { e.preventDefault(); doEnd(); };
-    canvas.addEventListener('touchstart',  ts, { passive: false });
-    canvas.addEventListener('touchmove',   tm, { passive: false });
-    canvas.addEventListener('touchend',    te, { passive: false });
-    canvas.addEventListener('touchcancel', te, { passive: false });
+
+    function shouldAccept(e) {
+      // pen を一度でも受けたら touch は無視する。マウスは常に受ける。
+      if (e.pointerType === 'touch' && sawPenRef.current) return false;
+      return true;
+    }
+
+    function onPointerDown(e) {
+      if (!shouldAccept(e)) return;
+      if (e.pointerType === 'pen') sawPenRef.current = true;
+      if (activePointerRef.current !== null) return; // すでに別ポインター描画中
+      activePointerRef.current = e.pointerId;
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+      doStart(e.clientX, e.clientY);
+    }
+    function onPointerMove(e) {
+      if (activePointerRef.current !== e.pointerId) return;
+      // getCoalescedEvents で取りこぼしのない高解像度入力にする
+      const events = (typeof e.getCoalescedEvents === 'function' && e.getCoalescedEvents().length > 0)
+        ? e.getCoalescedEvents() : [e];
+      for (const ev of events) pendingPointsRef.current.push({ x: ev.clientX, y: ev.clientY });
+      e.preventDefault();
+      scheduleFlush();
+    }
+    function onPointerEnd(e) {
+      if (activePointerRef.current !== e.pointerId) return;
+      activePointerRef.current = null;
+      try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+      // 残った point を吐き出してから end
+      flushPoints();
+      e.preventDefault();
+      doEnd();
+    }
+    function onPointerCancel(e) {
+      if (activePointerRef.current !== e.pointerId) return;
+      activePointerRef.current = null;
+      pendingPointsRef.current = [];
+      drawingRef.current = false;
+      // 取り消し（失敗扱いではなく無効化）
+      currentPointsRef.current = [];
+    }
+
+    canvas.addEventListener('pointerdown',   onPointerDown);
+    canvas.addEventListener('pointermove',   onPointerMove);
+    canvas.addEventListener('pointerup',     onPointerEnd);
+    canvas.addEventListener('pointercancel', onPointerCancel);
+    // iOS Safari のスクロール抑止
+    const block = (e) => { if (drawingRef.current) e.preventDefault(); };
+    canvas.addEventListener('touchmove', block, { passive: false });
+
     return () => {
-      canvas.removeEventListener('touchstart',  ts);
-      canvas.removeEventListener('touchmove',   tm);
-      canvas.removeEventListener('touchend',    te);
-      canvas.removeEventListener('touchcancel', te);
+      canvas.removeEventListener('pointerdown',   onPointerDown);
+      canvas.removeEventListener('pointermove',   onPointerMove);
+      canvas.removeEventListener('pointerup',     onPointerEnd);
+      canvas.removeEventListener('pointercancel', onPointerCancel);
+      canvas.removeEventListener('touchmove',     block);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+      pendingPointsRef.current = [];
     };
   }, []);
+
+  // rAF バッチ：1 フレームに蓄積した点をひと続きの lineTo として描く
+  function scheduleFlush() {
+    if (rafIdRef.current) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = 0;
+      flushPoints();
+    });
+  }
+  function flushPoints() {
+    const points = pendingPointsRef.current;
+    if (points.length === 0) return;
+    pendingPointsRef.current = [];
+    for (const p of points) doMove(p.x, p.y);
+  }
 
   /* --- 描画ヘルパー --- */
   function clearAll() {
@@ -1139,11 +1437,19 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   function resize() {
     const c = writeRef.current; if (!c) return;
     const rect = c.getBoundingClientRect();
-    const size = Math.round(Math.min(rect.width, rect.height));
-    if (size <= 0) return;
+    const cssSize = Math.round(Math.min(rect.width, rect.height));
+    if (cssSize <= 0) return;
+    // Retina ディスプレイで線がぼやけないよう、内部解像度を DPR 倍に上げる。
+    // 描画コード側は `c.width`（= raster）を「論理サイズ」として扱っているため
+    // setTransform は使わず、座標変換側で raster ピクセルへ換算する。
+    // CSS 側は依然として親要素フィット（100%×100%）で描画される。
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const pixelSize = Math.round(cssSize * dpr);
     [writeRef, inkRef, guideRef].forEach(r => {
-      if (r.current && r.current.width !== size) {
-        r.current.width = size; r.current.height = size;
+      const cv = r.current;
+      if (!cv) return;
+      if (cv.width !== pixelSize || cv.height !== pixelSize) {
+        cv.width = pixelSize; cv.height = pixelSize;
       }
     });
   }
@@ -1184,7 +1490,21 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     return { nx, ny, cx: nx * c.width, cy: ny * c.height };
   }
 
-  /* --- 描画ロジック（マウス/タッチ共用） --- */
+  /* --- 描画ロジック（Pointer Events / マウス共用） --- */
+  // バックアップ用キャンバスを取得（lazy 生成）
+  function getBackupCanvas() {
+    let b = traceSnapshotRef.current;
+    const main = writeRef.current;
+    if (!main) return null;
+    if (!b) {
+      b = document.createElement('canvas');
+      traceSnapshotRef.current = b;
+    }
+    if (b.width !== main.width || b.height !== main.height) {
+      b.width = main.width; b.height = main.height;
+    }
+    return b;
+  }
   function doStart(clientX, clientY) {
     const { paths: ps, currentStroke: cs, isCleared: ic, stage: st } = stateRef.current;
     if (!ps || ps.length === 0 || ic) return;
@@ -1202,16 +1522,22 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     // 自力モード：この画の点列を新たに記録しはじめる
     if (st >= 2) currentPointsRef.current = [{ x: pt.nx, y: pt.ny }];
     const c = writeRef.current;
-    // なぞり書き：失敗時にこの画だけ取り消せるよう、書き始め前を保存
+    // なぞり書き：失敗時にこの画だけ取り消せるよう、書き始め前を別キャンバスに退避。
+    // drawImage は GPU 経路を通り、getImageData/putImageData よりも高速。
     if (st < 2) {
-      try { traceSnapshotRef.current = c.getContext('2d').getImageData(0, 0, c.width, c.height); }
-      catch (e) { traceSnapshotRef.current = null; }
+      const b = getBackupCanvas();
+      if (b) {
+        const bctx = b.getContext('2d');
+        bctx.clearRect(0, 0, b.width, b.height);
+        bctx.drawImage(c, 0, 0);
+      }
     }
     const ctx = c.getContext('2d');
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.lineWidth = c.width * 0.07;
     ctx.strokeStyle = st >= 2 ? '#1e293b' : 'rgba(14,165,233,0.75)';
-    ctx.beginPath(); ctx.moveTo(pt.cx, pt.cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pt.cx, pt.cy); ctx.lineTo(pt.cx + 0.01, pt.cy + 0.01); ctx.stroke();
+    hapticTick();
   }
   function doMove(clientX, clientY) {
     if (!drawingRef.current) return;
@@ -1248,8 +1574,8 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     const ny = lastRef.current.y / c.height;
     const dist = Math.hypot(nx - target.x, ny - target.y);
     if (dist < TOLERANCE) {
-      // 成功：ユーザーの実筆跡は writeRef にそのまま残し、進捗のしるしにする
-      traceSnapshotRef.current = null;
+      // 成功
+      hapticOk();
       const next = cs + 1;
       setCurrentStroke(next);
       if (next >= ps.length) {
@@ -1269,14 +1595,15 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     } else {
       // 失敗：この画ぶんのインクだけ取り消す（既存の成功画は残す）
       const snap = traceSnapshotRef.current;
-      if (snap) c.getContext('2d').putImageData(snap, 0, 0);
-      else c.getContext('2d').clearRect(0, 0, c.width, c.height);
-      traceSnapshotRef.current = null;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      if (snap) ctx.drawImage(snap, 0, 0);
       onMistake();
     }
   }
   function onMistake() {
     playBuzzer();
+    hapticErr();
     setHasMistaken(true);
     // 自力モード（ステージ2以上）では、ミスした瞬間にれんぞくカウントをリセット
     if (stateRef.current.stage >= 2) {
@@ -1326,7 +1653,8 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
     const result = scoreHandwriting(userStrokes, ps);
     if (!result) return;
     setScoreInfo(result);
-    if (result.passed) playFanfare(); else playPingPong();
+    if (result.passed) { playFanfare(); hapticTriumph(); }
+    else { playPingPong(); hapticOk(); }
     if (voiceOn) setTimeout(() => speakText(`${result.total}てん`, voiceOn), 150);
     onRoundComplete(ch, result.passed);
   }
@@ -1388,23 +1716,35 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
           <canvas ref={writeRef}
             className="absolute inset-0 w-full h-full z-[20] cursor-crosshair"
             style={{ touchAction: 'none' }}
-            onMouseDown={(e) => doStart(e.clientX, e.clientY)}
-            onMouseMove={(e) => doMove(e.clientX, e.clientY)}
-            onMouseUp={() => doEnd()}
-            onMouseLeave={() => doEnd()}
+            role="img"
+            aria-label={char ? `${char} のかきとり`: 'もじを えらんでください'}
           />
           {!char && (
-            <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-7xl pointer-events-none">？</div>
+            <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-7xl pointer-events-none" aria-label="もじを えらんでください">？</div>
+          )}
+          {char && paths === null && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-600 z-[30] pointer-events-none gap-2" role="status" aria-live="polite">
+              <div className="text-4xl kkm-float" aria-hidden="true">🐤</div>
+              <div className="text-sm font-black">よみこみちゅう…</div>
+            </div>
+          )}
+          {char && fetchError && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/85 z-[30] gap-2 p-4 text-center" role="alert">
+              <div className="text-4xl" aria-hidden="true">📡</div>
+              <div className="text-sm font-black text-rose-700">よみこめなかったよ</div>
+              <div className="text-xs text-slate-600 font-bold">インターネットが つながって いるか たしかめてね</div>
+              <button onClick={onRetryFetch}
+                className="mt-1 px-4 py-2 rounded-xl bg-amber-400 text-white font-black text-sm shadow border-b-4 border-amber-600 active:translate-y-0.5 active:border-b-2 min-h-[44px]">
+                もういちど ためす
+              </button>
+            </div>
           )}
         </div>
       </div>
 
       {/* 自力モード：「できた」採点ボタン */}
       {char && stage >= 2 && (
-        <button onClick={submitFreeWrite} disabled={!!scoreInfo}
-          className="kkm-cta-btn mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-violet-400 text-white font-black text-sm md:text-base shadow border-b-4 border-violet-600 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-60">
-          ✨ できた！ さいてんする
-        </button>
+        <SubmitButton onSubmit={submitFreeWrite} disabled={!!scoreInfo}/>
       )}
 
       {/* ステージ3 → ことばで💮 への大きなCTA */}
@@ -1417,16 +1757,19 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
 
       <div className="flex gap-1.5 md:gap-2 mt-2 md:mt-3 shrink-0 kkm-practice-buttons">
         <button onClick={restart} disabled={!char}
-          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-orange-50 text-orange-600 shadow-sm border-b-4 border-orange-200 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
-          <IconRotate size={14}/> やりなおし
+          aria-label="ここまでの れんしゅうを やりなおす"
+          className="flex-1 py-2 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-orange-50 text-orange-700 shadow-sm border-b-4 border-orange-200 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5 min-h-[44px]">
+          <IconRotate size={16}/> やりなおし
         </button>
         <button onClick={() => char && speakText(char, voiceOn)} disabled={!char || !voiceOn}
-          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-emerald-100 text-emerald-700 shadow-sm border-b-4 border-emerald-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
-          <IconVolume size={14}/> よんで
+          aria-label={char ? `${char} を よみあげる`: 'もじを よみあげる'}
+          className="flex-1 py-2 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-emerald-100 text-emerald-700 shadow-sm border-b-4 border-emerald-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5 min-h-[44px]">
+          <IconVolume size={16}/> よんで
         </button>
-        <button onClick={() => setShowAnime(true)} disabled={!char}
-          className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-sky-100 text-sky-600 shadow-sm border-b-4 border-sky-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
-          <IconPlay size={14}/> かきじゅん
+        <button onClick={() => paths && paths.length > 0 && setShowAnime(true)} disabled={!char || !paths || paths.length === 0}
+          aria-label="かきじゅんを みる"
+          className="flex-1 py-2 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-sky-100 text-sky-700 shadow-sm border-b-4 border-sky-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5 min-h-[44px]">
+          <IconPlay size={16}/> かきじゅん
         </button>
       </div>
 
@@ -1438,6 +1781,17 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       {scoreInfo && <ScorePopup result={scoreInfo} onClose={closeScorePopup}/>}
       {stageUp && <StageUpPopup info={stageUp} onClose={() => setStageUp(null)} onGoToWords={onGoToWords}/>}
     </div>
+  );
+}
+
+// 連打防止つきの採点ボタン（300ms 以内の二度押しを破棄）
+function SubmitButton({ onSubmit, disabled }) {
+  const guarded = useDebouncedAction(onSubmit, 350);
+  return (
+    <button onClick={guarded} disabled={disabled}
+      className="kkm-cta-btn mt-1 md:mt-2 py-2 md:py-2.5 px-3 rounded-xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-violet-400 text-white font-black text-sm md:text-base shadow border-b-4 border-violet-600 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-60 min-h-[44px]">
+      ✨ できた！ さいてんする
+    </button>
   );
 }
 
@@ -1515,6 +1869,7 @@ function StrokeOrderAnime({ paths, char, onClose }) {
   const [speed, setSpeed] = useState(5);
   const [playing, setPlaying] = useState(false);
   const lengthsRef = useRef([]);
+  const dialogRef = useModal(onClose);
 
   useEffect(() => {
     const svg = svgRef.current; if (!svg) return;
@@ -1529,11 +1884,11 @@ function StrokeOrderAnime({ paths, char, onClose }) {
       bg.setAttribute('d', d); bg.setAttribute('stroke', '#fef3c7'); bg.setAttribute('stroke-width','6');
       bg.setAttribute('fill','none'); bg.setAttribute('stroke-linecap','round'); bg.setAttribute('stroke-linejoin','round');
       bgG.appendChild(bg);
-      const tmpSvg = document.createElementNS(svgNS,'svg');
-      const tp = document.createElementNS(svgNS,'path'); tp.setAttribute('d', d);
-      tmpSvg.appendChild(tp); document.body.appendChild(tmpSvg);
-      const len = tp.getTotalLength()+8; const sp = tp.getPointAtLength(0);
-      document.body.removeChild(tmpSvg); lens.push(len);
+      // 長さと始点はキャッシュから（DOM 挿入なし）
+      const len = getPathLength(d) + 8;
+      const se  = getStartEndPoints(d);
+      const sp  = { x: se.s.x * 109, y: se.s.y * 109 };
+      lens.push(len);
       const p = document.createElementNS(svgNS,'path');
       p.setAttribute('d', d); p.setAttribute('stroke', '#0f172a'); p.setAttribute('stroke-width','6');
       p.setAttribute('fill','none'); p.setAttribute('stroke-linecap','round'); p.setAttribute('stroke-linejoin','round');
@@ -1592,10 +1947,12 @@ function StrokeOrderAnime({ paths, char, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-2 md:p-4 overflow-auto" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-sky-200 p-3 md:p-6 max-w-md w-full my-auto" onClick={(e) => { e.stopPropagation(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${char} のかきじゅん`}
+        className="bg-white rounded-3xl shadow-2xl border-4 border-sky-200 p-3 md:p-6 max-w-md w-full my-auto" onClick={(e) => { e.stopPropagation(); }}>
         <div className="flex justify-between items-center mb-2 md:mb-3">
           <span className="text-sm font-black text-sky-700 bg-sky-100 px-3 py-1 rounded-full">「{char}」のかきじゅん</span>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95"><IconX size={16}/></button>
+          <button onClick={onClose} aria-label="とじる"
+            className="w-11 h-11 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95 min-w-[44px] min-h-[44px]"><IconX size={18}/></button>
         </div>
         <div className="aspect-square bg-white rounded-2xl border-4 border-sky-200 shadow-inner relative overflow-hidden mb-2 md:mb-3 mx-auto" style={{ maxHeight: 'min(70vh, 70dvh)', maxWidth: '100%', width: 'min(70vh, 70dvh, 100%)' }}>
           <div className="absolute top-1/2 left-0 right-0 border-t-2 border-dashed border-sky-200"/>
@@ -1609,7 +1966,7 @@ function StrokeOrderAnime({ paths, char, onClose }) {
           </button>
           <div className="flex-1">
             <input type="range" min="1" max="10" value={speed} onChange={(e) => setSpeed(+e.target.value)} className="w-full accent-sky-500"/>
-            <div className="flex justify-between text-[10px] text-sky-500 font-bold"><span>🐢 ゆっくり</span><span>はやい 🐇</span></div>
+            <div className="flex justify-between text-[10px] text-sky-700 font-bold"><span>🐢 ゆっくり</span><span>はやい 🐇</span></div>
           </div>
         </div>
       </div>
@@ -1661,10 +2018,11 @@ function ScorePopup({ result, onClose }) {
 
   return (
     <div
-      className={`fixed inset-0 z-[170] flex items-center justify-center transition-all duration-400 ${
+      className={`fixed inset-0 z-[170] flex items-center justify-center transition-all duration-400 bg-black/20 ${
         show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
-      } ${detail ? 'bg-black/30 pointer-events-auto' : 'pointer-events-none'}`}
-      onClick={detail ? close : undefined}
+      } pointer-events-auto`}
+      onClick={close}
+      role="dialog" aria-modal="true" aria-label={`さいてんけっか ${total} てん`}
     >
       <div className={`bg-gradient-to-br ${color} px-6 md:px-10 py-4 md:py-6 rounded-3xl shadow-2xl border-4 text-center ${detail ? '' : '-rotate-2'} pointer-events-auto max-w-md mx-3`}
            onClick={(e) => e.stopPropagation()}>
@@ -1674,10 +2032,16 @@ function ScorePopup({ result, onClose }) {
           <span className="text-xl md:text-2xl font-black opacity-80">/100てん</span>
         </div>
         {!detail && (
-          <button onClick={(e) => { e.stopPropagation(); setDetail(true); }}
-            className="mt-3 px-4 py-1.5 rounded-full bg-white/80 border-2 border-current text-xs md:text-sm font-black active:scale-95 transition-all">
-            🔍 くわしく みる
-          </button>
+          <div className="mt-3 flex justify-center gap-2">
+            <button onClick={(e) => { e.stopPropagation(); setDetail(true); }}
+              className="px-4 py-2 rounded-full bg-white/80 border-2 border-current text-xs md:text-sm font-black active:scale-95 transition-all min-h-[44px]">
+              🔍 くわしく
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); close(); }}
+              className="px-4 py-2 rounded-full bg-white/80 border-2 border-current text-xs md:text-sm font-black active:scale-95 transition-all min-h-[44px]">
+              とじる
+            </button>
+          </div>
         )}
         {detail && (
           <div className="mt-3 bg-white/85 rounded-2xl p-3 text-left text-slate-700">
@@ -1711,16 +2075,19 @@ function WordMasterPopup({ info, onClose }) {
   useEffect(() => {
     setShow(true);
     const t = setTimeout(() => { setShow(false); setTimeout(onClose, 400); }, 3200);
-    return () => clearTimeout(t);
+    function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShow(false); setTimeout(onClose, 400); } }
+    document.addEventListener('keydown', onKey);
+    return () => { clearTimeout(t); document.removeEventListener('keydown', onKey); };
   }, [onClose]);
   if (!info) return null;
   return (
-    <div className={`fixed inset-0 z-[350] pointer-events-none flex items-center justify-center transition-all duration-500 ${
+    <div role="dialog" aria-modal="true" aria-label="ことばで めざめたよ"
+      className={`fixed inset-0 z-[350] flex items-center justify-center transition-all duration-500 ${
       show ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
-    }`}>
-      <div className="bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100 px-6 md:px-10 py-5 md:py-7 rounded-3xl shadow-2xl border-4 border-amber-400 max-w-md mx-3 pointer-events-auto" onClick={onClose}>
+    }`} onClick={onClose}>
+      <div className="bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100 px-6 md:px-10 py-5 md:py-7 rounded-3xl shadow-2xl border-4 border-amber-400 max-w-md mx-3 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
         <div className="text-center">
-          <div className="text-xs md:text-sm font-black text-amber-700 opacity-80 mb-1">🎉 ことばで めざめたよ！</div>
+          <div className="text-xs md:text-sm font-black text-amber-700 opacity-90 mb-1">🎉 ことばで めざめたよ！</div>
           <div className="flex justify-center gap-2 my-2 md:my-3">
             {info.chars.map((c, i) => (
               <div key={i} className="relative">
@@ -1732,7 +2099,10 @@ function WordMasterPopup({ info, onClose }) {
           <div className="text-base md:text-xl font-black text-amber-700 mt-1">
             「{info.text}」で <span className="text-rose-500">かんぺき</span>！
           </div>
-          <div className="text-[10px] md:text-xs text-amber-600 mt-2 opacity-80">タップしてとじる</div>
+          <button onClick={onClose} autoFocus
+            className="mt-3 px-5 py-2 rounded-full bg-white text-amber-700 font-black text-sm shadow border-b-4 border-amber-300 active:translate-y-0.5 active:border-b-2 min-h-[44px]">
+            やったー！
+          </button>
         </div>
       </div>
     </div>
@@ -1743,14 +2113,21 @@ function WordMasterPopup({ info, onClose }) {
    16. <BadgeToast> ── バッジ獲得トースト
    ────────────────────────────────────────────────────────────── */
 function BadgeToast({ badge, onClose }) {
-  useEffect(() => { playBadge(); const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, [onClose]);
+  useEffect(() => {
+    playBadge();
+    hapticTriumph();
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
   if (!badge) return null;
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[400] animate-bounce" style={{ animationDuration:'1.5s', animationIterationCount:2 }}>
-      <div className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-300 border-4 border-amber-500 rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-3">
-        <div className="text-4xl">{badge.icon}</div>
+    <div role="status" aria-live="polite"
+      className="kkm-badge-toast fixed top-20 left-1/2 -translate-x-1/2 z-[400]"
+      onClick={onClose}>
+      <div className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-300 border-4 border-amber-500 rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-3 cursor-pointer">
+        <div className="text-4xl" aria-hidden="true">{badge.icon}</div>
         <div>
-          <div className="text-[10px] font-black text-amber-800 opacity-80">🎉 シールゲット！</div>
+          <div className="text-[10px] font-black text-amber-800 opacity-90">🎉 シールゲット！</div>
           <div className="text-base md:text-lg font-black text-amber-900">{badge.title}</div>
         </div>
       </div>
@@ -1766,15 +2143,18 @@ function AchievementsModal({ earned, mastered, words, streak, onClose }) {
   const nextLv = LEVELS.find(l => l.min > mastered.length);
   const totalHira = mastered.filter(c => HIRA_LIST.includes(c)).length;
   const totalKata = mastered.filter(c => KATA_LIST.includes(c)).length;
+  const dialogRef = useModal(onClose);
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-3" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-yellow-300 max-w-2xl w-full max-h-[92vh] overflow-y-auto p-4 md:p-6" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="ごほうびシールずかん"
+        className="bg-white rounded-3xl shadow-2xl border-4 border-yellow-300 max-w-2xl w-full max-h-[92vh] overflow-y-auto p-4 md:p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl md:text-2xl font-black text-amber-700 flex items-center gap-2">
             <IconTrophy size={26}/> ごほうびシールずかん
           </h2>
-          <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95"><IconX size={18}/></button>
+          <button onClick={onClose} aria-label="とじる"
+            className="w-11 h-11 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95 min-w-[44px] min-h-[44px]"><IconX size={18}/></button>
         </div>
 
         {/* レベル＆統計 */}
@@ -1966,8 +2346,10 @@ function ShiritoriGame({ words, voiceOn }) {
     if (lastChar === 'ん') {
       updateBest(newChain.length);
       setGameState('lost');
+      hapticErr();
       return;
     }
+    hapticOk();
 
     setThinking(true);
     setTimeout(() => {
@@ -2071,7 +2453,7 @@ function ShiritoriGame({ words, voiceOn }) {
             <div ref={chainRef} className="flex-1 overflow-y-auto space-y-2 min-h-0 bg-slate-50/70 rounded-xl p-2 border border-slate-200">
               {chain.map((entry, i) => (
                 <div key={i} className={`flex items-end gap-2 ${entry.isPlayer ? 'flex-row-reverse' : 'flex-row'}`}>
-                  <span className="text-xs text-slate-400 font-black shrink-0 mb-0.5">{entry.isPlayer ? 'あなた' : 'CPU'}</span>
+                  <span className="text-xs text-slate-500 font-black shrink-0 mb-0.5">{entry.isPlayer ? 'あなた' : 'CPU'}</span>
                   <div className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-black shadow-sm max-w-[65%] ${
                     entry.isPlayer
                       ? 'bg-gradient-to-br from-sky-400 to-blue-500 text-white rounded-br-sm'
@@ -2087,7 +2469,7 @@ function ShiritoriGame({ words, voiceOn }) {
               ))}
               {thinking && (
                 <div className="flex items-end gap-2">
-                  <span className="text-xs text-slate-400 font-black">CPU</span>
+                  <span className="text-xs text-slate-500 font-black">CPU</span>
                   <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border-2 border-slate-200 text-slate-400 text-sm font-black rounded-bl-sm">
                     🤔 かんがえてる...
                   </div>
@@ -2107,8 +2489,9 @@ function ShiritoriGame({ words, voiceOn }) {
                   <div className="flex flex-wrap gap-2 justify-center">
                     {playableWords.map(w => (
                       <button key={w.id} onClick={() => playerPlay(w)}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-black bg-gradient-to-br from-sky-50 to-blue-50 border-2 border-sky-300 text-sky-800 shadow-sm hover:shadow-md hover:border-sky-400 transition-all active:scale-95">
-                        <span className="text-xl">{w.emoji}</span>
+                        aria-label={`${w.text} を こたえる`}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-black bg-gradient-to-br from-sky-50 to-blue-50 border-2 border-sky-300 text-sky-800 shadow-sm hover:shadow-md hover:border-sky-400 transition-all active:scale-95 min-h-[44px]">
+                        <span className="text-xl" aria-hidden="true">{w.emoji}</span>
                         <span className="text-base">{w.text}</span>
                       </button>
                     ))}
@@ -2121,7 +2504,7 @@ function ShiritoriGame({ words, voiceOn }) {
                       className="px-4 py-1.5 rounded-lg bg-rose-200 text-rose-700 font-black text-sm active:scale-95">まけを みとめる</button>
                   </div>
                 )}
-                <div className="text-center text-xs text-slate-400 font-black">
+                <div className="text-center text-xs text-slate-500 font-black">
                   てふだ {hiraganaWords.length}こ ／ つなげた {chain.length}こ
                 </div>
               </div>
@@ -2225,14 +2608,16 @@ function WordCollection({ kanaMode, setKanaMode, progress, mastered, usableInWor
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">
             {collected.slice().reverse().map(w => (
               <div key={w.id} className="bg-gradient-to-br from-white to-amber-50 rounded-xl shadow-sm hover:shadow-lg border-2 border-amber-200 p-3 flex flex-col items-center gap-1 relative group kkm-pop kkm-pop-in">
-                <span className="text-4xl group-hover:scale-110 transition-transform">{w.emoji || '✨'}</span>
+                <span className="text-4xl group-hover:scale-110 transition-transform" aria-hidden="true">{w.emoji || '✨'}</span>
                 <button onClick={() => speakText(w.text, voiceOn)} disabled={!voiceOn}
+                  aria-label={voiceOn ? `${w.text} を よみあげる` : `${w.text}`}
                   className="font-black text-lg text-slate-700 hover:text-amber-600 transition-all active:scale-95 disabled:cursor-default">
                   {w.text}
                 </button>
                 <button onClick={() => onDelete(w.id)}
-                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-50 text-rose-400 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all active:scale-95">
-                  <IconTrash size={12}/>
+                  aria-label={`${w.text} を けす`}
+                  className="absolute top-1 right-1 w-8 h-8 min-w-[32px] min-h-[32px] rounded-full bg-rose-50 text-rose-500 opacity-60 md:opacity-0 md:group-hover:opacity-100 hover:bg-rose-100 flex items-center justify-center transition-all active:scale-95">
+                  <IconTrash size={14}/>
                 </button>
               </div>
             ))}
@@ -2304,17 +2689,21 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
   const [kindTab, setKindTab] = useState('seion');
   const table = getKanaTable(kanaMode, kindTab);
   const canSave = text.length >= 1;
+  const dialogRef = useModal(onCancel);
   // この単語で💮になる数（プレビュー）
   const willMaster = useMemo(() => Array.from(new Set(text.split(''))).filter(c => getStage(progress, c) === 3), [text, progress]);
   function addChar(c) { if (text.length < 8) { setText(t => t + c); speakText(c, voiceOn); } }
   function backspace() { setText(t => t.slice(0, -1)); }
+  const handleSave = useDebouncedAction(() => { if (canSave) onSave({ text, emoji, kanaMode }); }, 400);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-3" onClick={onCancel}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-amber-300 max-w-lg w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="あたらしい ことばを ふやす"
+        className="bg-white rounded-3xl shadow-2xl border-4 border-amber-300 max-w-lg w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center px-4 md:px-6 pt-4 md:pt-6 pb-3 shrink-0">
           <h3 className="font-black text-lg text-amber-700 flex items-center gap-2"><IconPlus size={20}/> ことばを つくろう</h3>
-          <button onClick={onCancel} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95"><IconX size={16}/></button>
+          <button onClick={onCancel} aria-label="とじる"
+            className="w-11 h-11 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95 min-w-[44px] min-h-[44px]"><IconX size={18}/></button>
         </div>
 
         <div className="px-4 md:px-6 overflow-y-auto flex-1 min-h-0">
@@ -2326,12 +2715,14 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
           {text.length > 0 && (
             <>
               <button onClick={() => speakText(text, voiceOn)} disabled={!voiceOn}
-                className="w-9 h-9 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center transition-all active:scale-95 disabled:opacity-40">
-                <IconVolume size={18}/>
+                aria-label="いまの ことばを よみあげる"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-sky-100 text-sky-700 flex items-center justify-center transition-all active:scale-95 disabled:opacity-40">
+                <IconVolume size={20}/>
               </button>
               <button onClick={backspace}
-                className="w-9 h-9 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center transition-all active:scale-95">
-                <IconX size={18}/>
+                aria-label="さいごの じを けす"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-rose-100 text-rose-600 flex items-center justify-center transition-all active:scale-95">
+                <IconX size={20}/>
               </button>
             </>
           )}
@@ -2400,9 +2791,9 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
 
         <div className="flex gap-2 px-4 md:px-6 pt-3 pb-4 md:pb-6 border-t border-amber-100 bg-white rounded-b-3xl shrink-0">
           <button onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl font-black text-sm bg-slate-100 text-slate-500 shadow-sm border-b-4 border-slate-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2">やめる</button>
-          <button disabled={!canSave} onClick={() => onSave({ text, emoji, kanaMode })}
-            className="flex-[2] py-2.5 rounded-xl font-black text-base bg-amber-400 text-white shadow border-b-4 border-amber-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+            className="flex-1 py-2.5 rounded-xl font-black text-sm bg-slate-100 text-slate-600 shadow-sm border-b-4 border-slate-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 min-h-[44px]">やめる</button>
+          <button disabled={!canSave} onClick={handleSave}
+            className="flex-[2] py-2.5 rounded-xl font-black text-base bg-amber-400 text-white shadow border-b-4 border-amber-600 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 min-h-[44px]">
             <IconCheck size={18}/> ずかんに ついか
           </button>
         </div>
@@ -2415,18 +2806,22 @@ function WordAddModal({ kanaMode, progress, usableInWords, list, voiceOn, onCanc
    20. <ResetModal>
    ────────────────────────────────────────────────────────────── */
 function ResetModal({ onCancel, onConfirm }) {
+  const dialogRef = useModal(onCancel);
+  const guardedConfirm = useDebouncedAction(onConfirm, 500);
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" onClick={onCancel}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-rose-300 p-6 max-w-sm w-full flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
-        <div className="text-rose-500 text-5xl">⚠️</div>
+      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-label="データをけしますか？"
+        className="bg-white rounded-3xl shadow-2xl border-4 border-rose-300 p-6 max-w-sm w-full flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+        <div className="text-rose-500 text-5xl" aria-hidden="true">⚠️</div>
         <p className="text-base md:text-lg font-black text-slate-700 text-center leading-relaxed">
           いままで れんしゅうした<br/>データを ぜんぶ けしますか？
         </p>
+        <p className="text-xs text-slate-500 font-bold">ほんとうに よろしいですか？ もとには もどせません。</p>
         <div className="flex gap-2 w-full mt-2">
-          <button onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl font-black bg-slate-100 text-slate-500 shadow-sm border-b-4 border-slate-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2">やめる</button>
-          <button onClick={onConfirm}
-            className="flex-1 py-2.5 rounded-xl font-black bg-rose-500 text-white shadow border-b-4 border-rose-700 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2">けす</button>
+          <button onClick={onCancel} autoFocus
+            className="flex-1 py-2.5 rounded-xl font-black bg-slate-100 text-slate-600 shadow-sm border-b-4 border-slate-300 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 min-h-[44px]">やめる</button>
+          <button onClick={guardedConfirm}
+            className="flex-1 py-2.5 rounded-xl font-black bg-rose-500 text-white shadow border-b-4 border-rose-700 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 min-h-[44px]">けす</button>
         </div>
       </div>
     </div>
@@ -2439,14 +2834,24 @@ function ResetModal({ onCancel, onConfirm }) {
 function MainBoard({ kanaMode, setKanaMode, kanaKind, setKanaKind, progress, mastered, onAnimeViewed, onRoundComplete, onMistakeStreakReset, onStrokeCountMismatch, practiceCount, voiceOn, onGoToWords }) {
   const [currentChar, setCurrentChar] = useState(null);
   const [paths, setPaths] = useState(null);
+  const [fetchError, setFetchError] = useState(false);
   const [playMode, setPlayMode] = useState('free');
   const dailyChar = useDailyChallenge(kanaMode, mastered);
+  // 並行に複数のフェッチを起動した場合、最後に選んだ文字の結果だけ反映するため
+  // 連番で識別する
+  const fetchSeqRef = useRef(0);
 
   const selectChar = useCallback(async (c, mode='free') => {
-    setPlayMode(mode); setCurrentChar(c); setPaths(null);
+    const seq = ++fetchSeqRef.current;
+    setPlayMode(mode); setCurrentChar(c); setPaths(null); setFetchError(false);
     const p = await fetchKanjiVG(c);
-    setPaths(p || []);
+    if (seq !== fetchSeqRef.current) return; // 古い結果は捨てる
+    if (!p) { setPaths([]); setFetchError(true); return; }
+    setPaths(p);
   }, []);
+  const retryFetch = useCallback(() => {
+    if (currentChar) selectChar(currentChar, playMode);
+  }, [currentChar, playMode, selectChar]);
 
   // デイリーチャレンジ：文字に合わせて しゅるい も自動で切り替え
   function pickDaily(c) {
@@ -2464,6 +2869,8 @@ function MainBoard({ kanaMode, setKanaMode, kanaKind, setKanaKind, progress, mas
     const list = getKanaList(kanaMode, kanaKind);
     let pool = list.filter(c => getStage(progress, c) < 4);
     if (pool.length === 0) pool = list;
+    // 直前と同じ文字を連続で出さない（プールが 2 つ以上ある場合）
+    if (currentChar && pool.length > 1) pool = pool.filter(c => c !== currentChar);
     const target = pool[Math.floor(Math.random()*pool.length)];
     selectChar(target, 'random');
   }
@@ -2515,7 +2922,8 @@ function MainBoard({ kanaMode, setKanaMode, kanaKind, setKanaKind, progress, mas
           onStrokeCountMismatch={onStrokeCountMismatch}
           onNext={nextChar} playMode={playMode}
           practiceCount={practiceCount} voiceOn={voiceOn}
-          onGoToWords={onGoToWords}/>
+          onGoToWords={onGoToWords}
+          fetchError={fetchError} onRetryFetch={retryFetch}/>
       </div>
     </div>
   );
@@ -2544,10 +2952,16 @@ function App() {
 
   // 音声リスト読み込み（ブラウザによっては遅延発火）
   useEffect(() => {
-    if (window.speechSynthesis) {
-      speechSynthesis.onvoiceschanged = () => { cachedJaVoice = null; getJaVoice(); };
-      getJaVoice();
-    }
+    if (!window.speechSynthesis) return;
+    function refresh() { cachedJaVoice = null; voicesResolved = false; getJaVoice(); }
+    speechSynthesis.addEventListener
+      ? speechSynthesis.addEventListener('voiceschanged', refresh)
+      : (speechSynthesis.onvoiceschanged = refresh);
+    refresh();
+    return () => {
+      if (speechSynthesis.removeEventListener) speechSynthesis.removeEventListener('voiceschanged', refresh);
+      else speechSynthesis.onvoiceschanged = null;
+    };
   }, []);
 
   // 音声OFFのときは効果音もすべてミュート
@@ -2558,8 +2972,25 @@ function App() {
     }
   }, [voiceOn]);
 
+  // localStorage 書き込み失敗（容量超過など）を画面に表示
+  const [storageWarn, setStorageWarn] = useState(false);
+  useEffect(() => {
+    setStorageWarnCallback(() => setStorageWarn(true));
+    return () => setStorageWarnCallback(null);
+  }, []);
+
+  // タブ復帰時に Safari の speechSynthesis が固まっていることがあるので
+  // 直近のフラグをリセットしておく
+  useEffect(() => {
+    function onVis() {
+      if (!document.hidden) lastSpeakText = '';
+    }
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
   // バッジ達成監視
-  useAchievements({ mastered, words, streak, earned, setEarned,
+  useAchievements({ mastered, words, streak, setEarned,
     onNew: (b) => setToastBadge(b) });
 
   const bumpCount = useCallback((char) => {
@@ -2702,6 +3133,20 @@ function App() {
                           onClose={() => setBadgesOpen(false)}/>}
       {toastBadge  && <BadgeToast badge={toastBadge} onClose={() => setToastBadge(null)}/>}
       {wordCelebration && <WordMasterPopup info={wordCelebration} onClose={() => setWordCelebration(null)}/>}
+      {storageWarn && (
+        <div role="alert"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[500] bg-rose-100 border-2 border-rose-400 text-rose-800 font-black rounded-2xl px-4 py-3 shadow-2xl max-w-sm flex items-start gap-2 kkm-pop-in">
+          <span className="text-2xl" aria-hidden="true">⚠️</span>
+          <div className="flex-1">
+            <div className="text-sm">ほぞん が できませんでした</div>
+            <div className="text-xs font-bold opacity-80 mt-0.5">ブラウザの ようりょうが いっぱいです。ことばを すこし けして みてください。</div>
+          </div>
+          <button onClick={() => setStorageWarn(false)} aria-label="とじる"
+            className="w-8 h-8 min-w-[32px] min-h-[32px] rounded-full bg-white/70 hover:bg-white text-rose-600 flex items-center justify-center active:scale-95">
+            <IconX size={16}/>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
