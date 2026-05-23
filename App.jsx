@@ -1082,7 +1082,17 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   useEffect(() => {
     const onR = () => { resize(); redrawGuide(); redrawInk(); };
     window.addEventListener('resize', onR);
-    return () => window.removeEventListener('resize', onR);
+    // メディアクエリやflexレイアウト変動でキャンバスのCSSサイズが変わったときも追従。
+    // （回転だけでなく、マスコット/ステッパー等の表示切替にも対応）
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && writeRef.current) {
+      ro = new ResizeObserver(() => { resize(); redrawGuide(); redrawInk(); });
+      ro.observe(writeRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', onR);
+      if (ro) ro.disconnect();
+    };
   }, []);
 
   // Web フォント（Klee One）読み込み後にガイドを再描画
@@ -1336,8 +1346,8 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
   }, [paths, currentStroke, isCleared, stage]);
 
   return (
-    <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-orange-100 p-2 md:p-4 flex flex-col h-full min-h-0">
-      <div className="flex justify-between items-center mb-1 md:mb-2 shrink-0 gap-2">
+    <div className="bg-white/95 backdrop-blur rounded-2xl shadow-sm border-2 border-orange-100 p-2 md:p-4 flex flex-col h-full min-h-0 kkm-practice-board">
+      <div className="flex justify-between items-center mb-1 md:mb-2 shrink-0 gap-2 kkm-board-header">
         <span className={`text-[10px] md:text-sm font-bold px-2 md:px-3 py-0.5 md:py-1 rounded-full truncate ${
           isTraceMode ? 'text-emerald-700 bg-emerald-100' : 'text-violet-700 bg-violet-100'
         }`}>
@@ -1356,13 +1366,13 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       )}
 
       {char && (
-        <div className="mb-1 md:mb-2 shrink-0">
+        <div className="mb-1 md:mb-2 shrink-0 kkm-practice-mascot">
           <Mascot message={mascotMsg} mood={mascotMood} size="small"/>
         </div>
       )}
 
-      <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 relative w-full">
-        <div className="relative aspect-square h-full max-h-full max-w-full bg-white rounded-2xl border-4 border-orange-200 shadow-inner overflow-hidden">
+      <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 relative w-full kkm-square-fit-container">
+        <div className="relative bg-white rounded-2xl border-4 border-orange-200 shadow-inner overflow-hidden kkm-square-fit">
           <div className="absolute top-1/2 left-0 right-0 border-t-2 border-dashed border-amber-200 pointer-events-none z-[5]"/>
           <div className="absolute left-1/2 top-0 bottom-0 border-l-2 border-dashed border-amber-200 pointer-events-none z-[5]"/>
           <canvas ref={guideRef} className="absolute inset-0 w-full h-full z-[1]"/>
@@ -1392,7 +1402,7 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       {/* 自力モード：「できた」採点ボタン */}
       {char && stage >= 2 && (
         <button onClick={submitFreeWrite} disabled={!!scoreInfo}
-          className="mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-violet-400 text-white font-black text-sm md:text-base shadow border-b-4 border-violet-600 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-60">
+          className="kkm-cta-btn mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-violet-400 text-white font-black text-sm md:text-base shadow border-b-4 border-violet-600 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-60">
           ✨ できた！ さいてんする
         </button>
       )}
@@ -1400,12 +1410,12 @@ function PracticeBoard({ char, paths, stageObj, onAnimeViewed, onRoundComplete, 
       {/* ステージ3 → ことばで💮 への大きなCTA */}
       {char && stage === 3 && (
         <button onClick={onGoToWords}
-          className="mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-300 text-amber-900 font-black text-xs md:text-base shadow border-b-4 border-amber-500 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0">
+          className="kkm-cta-btn mt-1 md:mt-2 py-1.5 md:py-2 px-3 rounded-xl bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-300 text-amber-900 font-black text-xs md:text-base shadow border-b-4 border-amber-500 active:translate-y-0.5 active:border-b-2 transition-all flex items-center justify-center gap-2 shrink-0">
           🎀 ことばを 1こ あつめて 💮 にしよう！
         </button>
       )}
 
-      <div className="flex gap-1.5 md:gap-2 mt-2 md:mt-3 shrink-0">
+      <div className="flex gap-1.5 md:gap-2 mt-2 md:mt-3 shrink-0 kkm-practice-buttons">
         <button onClick={restart} disabled={!char}
           className="flex-1 py-1.5 md:py-2.5 rounded-xl font-black text-xs md:text-base bg-orange-50 text-orange-600 shadow-sm border-b-4 border-orange-200 transition-all active:scale-95 active:translate-y-0.5 active:border-b-2 disabled:opacity-40 flex items-center justify-center gap-1 md:gap-1.5">
           <IconRotate size={14}/> やりなおし
@@ -1442,7 +1452,7 @@ function StageStepper({ stage, stageObj }) {
     { idx: 4, icon: '💮', label: 'ことば' },
   ];
   return (
-    <div className="flex items-stretch gap-0.5 md:gap-1 mb-2 shrink-0 text-[10px] md:text-xs font-black">
+    <div className="flex items-stretch gap-0.5 md:gap-1 mb-2 shrink-0 text-[10px] md:text-xs font-black kkm-stepper-row">
       {steps.map((s, i) => {
         const done = stage >= s.idx;
         const active = stage + 1 === s.idx || (stage === s.idx && s.idx < 4) || (stage === 0 && s.idx === 1);
@@ -1581,13 +1591,13 @@ function StrokeOrderAnime({ paths, char, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl border-4 border-sky-200 p-4 md:p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-3">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-2 md:p-4 overflow-auto" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl border-4 border-sky-200 p-3 md:p-6 max-w-md w-full my-auto" onClick={(e) => { e.stopPropagation(); }}>
+        <div className="flex justify-between items-center mb-2 md:mb-3">
           <span className="text-sm font-black text-sky-700 bg-sky-100 px-3 py-1 rounded-full">「{char}」のかきじゅん</span>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all active:scale-95"><IconX size={16}/></button>
         </div>
-        <div className="aspect-square bg-white rounded-2xl border-4 border-sky-200 shadow-inner relative overflow-hidden mb-3">
+        <div className="aspect-square bg-white rounded-2xl border-4 border-sky-200 shadow-inner relative overflow-hidden mb-2 md:mb-3 mx-auto" style={{ maxHeight: 'min(70vh, 70dvh)', maxWidth: '100%', width: 'min(70vh, 70dvh, 100%)' }}>
           <div className="absolute top-1/2 left-0 right-0 border-t-2 border-dashed border-sky-200"/>
           <div className="absolute left-1/2 top-0 bottom-0 border-l-2 border-dashed border-sky-200"/>
           <svg ref={svgRef} viewBox="0 0 109 109" className="w-full h-full relative z-10"/>
@@ -2487,8 +2497,8 @@ function MainBoard({ kanaMode, setKanaMode, kanaKind, setKanaKind, progress, mas
   }, [currentChar, stageObj?.stage, playMode]);
 
   return (
-    <div className="flex-1 flex flex-col p-2 md:p-4 min-h-0 overflow-hidden gap-2 md:gap-3">
-      <div className="shrink-0">
+    <div className="flex-1 flex flex-col p-2 md:p-4 min-h-0 overflow-hidden gap-2 md:gap-3 kkm-main-pad">
+      <div className="shrink-0 kkm-daily-wrap">
         <DailyChallenge char={dailyChar} kanaMode={kanaMode} progress={progress}
           onPick={pickDaily}/>
       </div>
@@ -2651,7 +2661,7 @@ function App() {
   const resetAll = () => { localStorage.clear(); window.location.reload(); };
 
   return (
-    <div className="h-screen flex flex-col kkm-app-bg overflow-hidden relative" style={{ fontFamily: "'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif", fontWeight: 600 }}>
+    <div className="h-screen flex flex-col kkm-app-bg overflow-hidden relative kkm-app-root" style={{ fontFamily: "'UD デジタル 教科書体 N-R', 'UD Digi Kyokasho N-R', 'UD デジタル 教科書体 NK-R', 'UD Digi Kyokasho NK-R', 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif", fontWeight: 600 }}>
       <canvas id="confettiCanvas" className="fixed inset-0 pointer-events-none z-[400]"/>
       <Header view={view} setView={setView} mastered={mastered}
         onReset={() => setResetOpen(true)}
