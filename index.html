@@ -21,6 +21,18 @@
 
   <!-- Babel（ブラウザ上でJSXを変換） -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- JSX 変換は classic ランタイム（React.createElement）を強制する。
+       Babel 8 では preset-react の既定が automatic ランタイムになり、
+       "react/jsx-runtime" を import しようとするため、UMD版（グローバルの
+       React/ReactDOM）では「Failed to resolve module specifier
+       "react/jsx-runtime"」となりページが開けない。これを防ぐための設定。
+       ※ Babel が <script type="text/babel"> を処理する前（DOMContentLoaded
+         前）に同期実行される必要があるので、必ず App.jsx より前に置く。 -->
+  <script>
+    Babel.registerPreset('react-classic', {
+      presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]],
+    });
+  </script>
 
   <style>
     html, body, #root {
@@ -268,6 +280,6 @@
   </div>
 
   <!-- App.jsx を Babel で変換しながら読み込み -->
-  <script type="text/babel" data-type="module" data-presets="react" src="./App.jsx"></script>
+  <script type="text/babel" data-type="module" data-presets="react-classic" src="./App.jsx"></script>
 </body>
 </html>
