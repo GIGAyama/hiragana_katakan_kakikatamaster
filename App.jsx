@@ -1,9 +1,3 @@
-/* @jsxRuntime classic */
-/* ↑ UMD版（グローバルの React / ReactDOM）を使うため、Babel の JSX 変換は
-   classic ランタイム（React.createElement）を強制する。これを指定しないと
-   automatic ランタイムが "react/jsx-runtime" を import しようとして、
-   ブラウザで「Failed to resolve module specifier "react/jsx-runtime"」となり
-   ページが開けなくなる。 */
 /* ==============================================================
    ひらがな・カタカナ かきかたマスター ＋ ことばあつめ
    --------------------------------------------------------------
